@@ -486,9 +486,33 @@ button, input { font-family: inherit; }
 
 #abilities {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   min-height: 74px;
 }
+
+.bind-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.bind-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #7d6540;
+  background: #241e19;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.bind-row b { color: var(--gold); }
+.bind-row.selected { border-color: var(--gold); }
 
 .ability {
   position: relative;

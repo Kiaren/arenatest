@@ -262,6 +262,29 @@ const CLASSES = {
           combat(`${nameOf(source)} leaps.`);
         },
       }),
+      spell({
+        id: "brace",
+        name: "Brace",
+        short: "Brace",
+        cost: 20,
+        cd: 20,
+        castTime: 0,
+        school: "physical",
+        target: "self",
+        blurb: "Harden for 4 sec, taking 30% less damage. Physical, so it cannot be purged.",
+        effect(source) {
+          addAura(source, {
+            id: "brace",
+            name: "Brace",
+            short: "Brc",
+            type: "buff",
+            remaining: 4,
+            damageReduce: 0.3,
+          });
+          floater(source, "Brace", "#e7c98a");
+          combat(`${nameOf(source)} braces.`);
+        },
+      }),
       trinket(),
       spell({
         id: "spellReflection",
@@ -500,6 +523,31 @@ const CLASSES = {
           dealDamage(source, target, 380, { direct: true, school: "magic", name: "Inferno" });
         },
       }),
+      spell({
+        id: "emberWard",
+        name: "Ember Ward",
+        short: "Ward",
+        cost: 18,
+        cd: 25,
+        castTime: 0,
+        school: "magic",
+        target: "self",
+        blurb: "A fire shell absorbs damage for 8 sec. Magic, so it can be purged. Dampening reduces the absorb.",
+        effect(source) {
+          const amount = Math.round(240 * (1 - currentDamp()));
+          addAura(source, {
+            id: "emberWard",
+            name: "Ember Ward",
+            short: "Wd",
+            type: "buff",
+            remaining: 8,
+            absorb: amount,
+            dispellable: true,
+          });
+          floater(source, "Ward", "#ff7a3c");
+          combat(`${nameOf(source)} raises an Ember Ward.`);
+        },
+      }),
       trinket(),
       spell({
         id: "iceBlock",
@@ -685,6 +733,30 @@ const CLASSES = {
           feignDeath(source);
         },
       }),
+      spell({
+        id: "pin",
+        name: "Pin",
+        short: "Pin",
+        cost: 20,
+        cd: 18,
+        castTime: 0,
+        range: 35,
+        minRange: 8,
+        school: "physical",
+        target: "enemy",
+        blurb: "A pinning shot roots the target for up to 3 sec. Root diminishing returns. Physical, so it cannot be dispelled. No effect inside 8 yards.",
+        effect(source, target) {
+          applyControl(source, target, {
+            id: "pin",
+            name: "Pin",
+            short: "Root",
+            control: "root",
+            dr: "root",
+            duration: 3,
+            dispellable: false,
+          });
+        },
+      }),
       trinket(),
       spell({
         id: "deterrence",
@@ -732,7 +804,7 @@ const CLASSES = {
         range: 35,
         school: "magic",
         target: "friend",
-        blurb: "1.5 sec heal. If an enemy is targeted, it heals you. Click your partner's frame (or press F2) to heal them. Reduced by dampening and Sundering Blow.",
+        blurb: "1.5 sec heal. If an enemy is targeted, it heals you. Click your partner's frame, or use your next-ally key, to heal them. Reduced by dampening and Sundering Blow.",
         effect(source, target) {
           heal(source, target, 400, "Salve");
         },
@@ -917,6 +989,31 @@ const CLASSES = {
           }
           if (tryReflect(source, target, this)) return;
           dealDamage(source, target, 90, { direct: true, school: "magic", name: "Litany" });
+        },
+      }),
+      spell({
+        id: "blessing",
+        name: "Blessing",
+        short: "Bless",
+        cost: 18,
+        cd: 25,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "An ally takes 20% less damage for 6 sec. Magic, so it can be purged.",
+        effect(source, target) {
+          addAura(target, {
+            id: "blessing",
+            name: "Blessing",
+            short: "Bls",
+            type: "buff",
+            remaining: 6,
+            dispellable: true,
+            damageReduce: 0.2,
+          });
+          floater(target, "Blessed", "#f7f4ff");
+          combat(`${nameOf(source)} blesses ${nameOf(target)}.`);
         },
       }),
       trinket(),
@@ -1130,6 +1227,38 @@ const CLASSES = {
           if (dealt > 0) heal(source, source, 40, "Siphon", true);
         },
       }),
+      spell({
+        id: "wither",
+        name: "Wither",
+        short: "Wither",
+        cost: 14,
+        cd: 15,
+        castTime: 0,
+        range: 30,
+        school: "magic",
+        target: "enemy",
+        reflectable: true,
+        harmful: true,
+        blurb: "A curse that cuts the target's damage done by 20% for 8 sec. Magic, so it can be dispelled.",
+        effect(source, target) {
+          if (tryReflect(source, target, this)) return;
+          if (immune(target)) {
+            floater(target, "Immune", "#ddd");
+            return;
+          }
+          addAura(target, {
+            id: "wither",
+            name: "Wither",
+            short: "Wth",
+            type: "debuff",
+            remaining: 8,
+            dispellable: true,
+            damageDoneCut: 0.2,
+          });
+          floater(target, "Withered", "#6b4cff");
+          combat(`${nameOf(source)} withers ${nameOf(target)}.`);
+        },
+      }),
       trinket(),
       spell({
         id: "healthstone",
@@ -1328,6 +1457,32 @@ const CLASSES = {
           dealDamage(source, target, 145, { direct: true, school: "magic", name: "Thornbolt" });
         },
       }),
+      spell({
+        id: "thicket",
+        name: "Thicket",
+        short: "Root",
+        cost: 16,
+        cd: 20,
+        castTime: 0,
+        range: 30,
+        school: "magic",
+        target: "enemy",
+        reflectable: true,
+        harmful: true,
+        blurb: "Roots an enemy in vines for up to 4 sec. Root diminishing returns. Magic, so it can be dispelled.",
+        effect(source, target) {
+          if (tryReflect(source, target, this)) return;
+          applyControl(source, target, {
+            id: "thicket",
+            name: "Thicket",
+            short: "Root",
+            control: "root",
+            dr: "root",
+            duration: 4,
+            dispellable: true,
+          });
+        },
+      }),
       trinket(),
       spell({
         id: "ironbark",
@@ -1513,6 +1668,25 @@ const CLASSES = {
         effect(source) {
           enterVeil(source, 20);
           combat(`${nameOf(source)} enters the veil.`);
+        },
+      }),
+      spell({
+        id: "step",
+        name: "Step",
+        short: "Step",
+        cost: 15,
+        cd: 18,
+        castTime: 0,
+        range: 20,
+        school: "physical",
+        target: "enemy",
+        blurb: "Step to an enemy within 20 yards and clear your roots. Does not break the veil.",
+        effect(source, target) {
+          const ang = Math.atan2(target.y - source.y, target.x - source.x);
+          const travel = Math.max(0, dist(source, target) - 2.4);
+          source.auras = source.auras.filter((a) => a.control !== "root");
+          blinkMove(source, Math.cos(ang), Math.sin(ang), travel);
+          combat(`${nameOf(source)} steps to ${nameOf(target)}.`);
         },
       }),
       trinket(),
@@ -1729,6 +1903,29 @@ const CLASSES = {
             floater(foe, "Slowed", "#e6d3b0");
           }
           combat(`${nameOf(source)} snuffs the lantern light.`);
+        },
+      }),
+      spell({
+        id: "tend",
+        name: "Tend",
+        short: "Tend",
+        cost: 14,
+        cd: 6,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "A strong instant heal, only if that ally is standing in your lantern.",
+        extra(source, target) {
+          if (!standingInLantern(source, target)) return "Outside the lantern";
+          return null;
+        },
+        effect(source, target) {
+          if (!standingInLantern(source, target)) {
+            if (source.human) feedback(source, "Outside the lantern");
+            return;
+          }
+          heal(source, target, 320, "Tend");
         },
       }),
       trinket(),
@@ -1970,6 +2167,25 @@ const CLASSES = {
           combat(`${nameOf(source)} reels across the ground.`);
         },
       }),
+      spell({
+        id: "barbs",
+        name: "Barbs",
+        short: "Barbs",
+        cost: 12,
+        cd: 8,
+        castTime: 0,
+        range: 30,
+        school: "magic",
+        target: "enemy",
+        reflectable: true,
+        harmful: true,
+        blurb: "Magic damage and one chain stack, up to 3. Chain stacks make Yank stun and Sever hit harder.",
+        effect(source, target) {
+          if (tryReflect(source, target, this)) return;
+          dealDamage(source, target, 70, { direct: true, school: "magic", name: "Barbs" });
+          if (target.hp > 0 && !immune(target)) addChain(source, target);
+        },
+      }),
       trinket(),
       spell({
         id: "bind",
@@ -2186,6 +2402,22 @@ const CLASSES = {
           combat(`${nameOf(source)} threads a mend across the oath.`);
         },
       }),
+      spell({
+        id: "comfort",
+        name: "Comfort",
+        short: "Comf",
+        cost: 16,
+        cd: 8,
+        castTime: 0,
+        school: "magic",
+        target: "self",
+        blurb: "Heals you and your oath partner.",
+        effect(source) {
+          heal(source, source, 160, "Comfort");
+          const partner = oathPartner(source);
+          if (partner && partner.hp > 0) heal(source, partner, 160, "Comfort");
+        },
+      }),
       trinket(),
       spell({
         id: "unity",
@@ -2399,6 +2631,22 @@ const CLASSES = {
           });
         },
       }),
+      spell({
+        id: "flourish",
+        name: "Flourish",
+        short: "Flrsh",
+        cost: 40,
+        cd: 8,
+        castTime: 0,
+        range: 5,
+        school: "physical",
+        target: "enemy",
+        blurb: "Spend Momentum for a heavy strike. Hits harder against your marked target.",
+        effect(source, target) {
+          const marked = isDuelMark(source, target);
+          dealDamage(source, target, marked ? 230 : 150, { direct: true, school: "physical", name: "Flourish" });
+        },
+      }),
       trinket(),
       spell({
         id: "isolate",
@@ -2443,6 +2691,145 @@ for (const cls of Object.values(CLASSES)) {
     else ability.key = SPELL_KEYS[spellKey++];
     ability.tag = ability.tag || (ability.id === "trinket" ? "Trinket" : "Spell");
   }
+}
+
+const BIND_CODES = {
+  Digit1: "1", Digit2: "2", Digit3: "3", Digit4: "4", Digit5: "5", Digit6: "6",
+  Numpad1: "1", Numpad2: "2", Numpad3: "3", Numpad4: "4", Numpad5: "5", Numpad6: "6",
+  KeyQ: "q", KeyE: "e", KeyR: "r", KeyT: "t", KeyF: "f", KeyG: "g",
+  KeyZ: "z", KeyX: "x", KeyC: "c", KeyV: "v", KeyB: "b", KeyY: "y", KeyH: "h",
+};
+const TARGET_ACTIONS = [
+  { id: "target:next", name: "Next enemy", code: "Tab" },
+  { id: "target:prev", name: "Previous enemy", code: "" },
+  { id: "target:self", name: "Target self", code: "F1" },
+  { id: "target:friend", name: "Next ally", code: "F2" },
+  { id: "target:enemy1", name: "Enemy 1", code: "" },
+  { id: "target:enemy2", name: "Enemy 2", code: "" },
+  { id: "target:enemy3", name: "Enemy 3", code: "" },
+  { id: "target:ally1", name: "Ally 1", code: "" },
+  { id: "target:ally2", name: "Ally 2", code: "" },
+];
+const LETTER_CODES = {
+  "1": "Digit1", "2": "Digit2", "3": "Digit3", "4": "Digit4", "5": "Digit5", "6": "Digit6",
+  q: "KeyQ", e: "KeyE", r: "KeyR", t: "KeyT", f: "KeyF", g: "KeyG",
+  z: "KeyZ", x: "KeyX", c: "KeyC", v: "KeyV", b: "KeyB", y: "KeyY", h: "KeyH",
+};
+let binds = {};
+let rebinding = null;
+let bindNote = "";
+try {
+  binds = JSON.parse(localStorage.getItem("arenaBinds") || "{}") || {};
+} catch (err) { binds = {}; }
+
+function bindFor(ability) {
+  const saved = binds[ability.id];
+  return typeof saved === "string" && saved ? saved : ability.key;
+}
+
+function targetCode(id) {
+  if (Object.prototype.hasOwnProperty.call(binds, id)) return binds[id] || "";
+  const action = TARGET_ACTIONS.find((a) => a.id === id);
+  return action ? action.code : "";
+}
+
+function codeLabel(code) {
+  if (!code) return "—";
+  if (BIND_CODES[code]) return BIND_CODES[code].toUpperCase();
+  return code;
+}
+
+function bindPrompt(picked) {
+  if (bindNote) return bindNote;
+  if (!rebinding) return "Click a row, then press a key. Saved in this browser.";
+  const target = TARGET_ACTIONS.find((a) => a.id === rebinding);
+  const spell = picked.abilities.find((a) => a.id === rebinding);
+  return `Press a key for ${target ? target.name : spell.name}.`;
+}
+
+function saveBinds() {
+  try { localStorage.setItem("arenaBinds", JSON.stringify(binds)); } catch (err) { /* ignore */ }
+}
+
+function setBind(abilityId, key) {
+  const list = CLASSES[setup.player].abilities;
+  const mine = list.find((a) => a.id === abilityId);
+  if (!mine) return;
+  const taken = list.find((a) => a.id !== abilityId && bindFor(a) === key);
+  if (taken) binds[taken.id] = bindFor(mine);
+  const code = LETTER_CODES[key];
+  const otherTarget = TARGET_ACTIONS.find((a) => code && targetCode(a.id) === code);
+  if (otherTarget) binds[otherTarget.id] = LETTER_CODES[bindFor(mine)] || "";
+  binds[abilityId] = key;
+  saveBinds();
+}
+
+function setTargetBind(id, code) {
+  const previous = targetCode(id);
+  const other = TARGET_ACTIONS.find((a) => a.id !== id && targetCode(a.id) === code);
+  if (other) binds[other.id] = previous;
+  const letter = BIND_CODES[code];
+  if (letter) {
+    const taken = CLASSES[setup.player].abilities.find((a) => bindFor(a) === letter);
+    if (taken) {
+      const prevLetter = BIND_CODES[previous];
+      const prevFree = prevLetter && !CLASSES[setup.player].abilities.some((a) => a !== taken && bindFor(a) === prevLetter);
+      if (prevFree) binds[taken.id] = prevLetter;
+      else {
+        const used = new Set(CLASSES[setup.player].abilities.map((a) => bindFor(a)));
+        const next = Object.values(LETTER_CODES).map((c) => BIND_CODES[c]).find((k) => k && k !== letter && !used.has(k));
+        if (next) binds[taken.id] = next;
+      }
+    }
+  }
+  binds[id] = code;
+  saveBinds();
+}
+
+function resetBinds() {
+  for (const ability of CLASSES[setup.player].abilities) delete binds[ability.id];
+  for (const action of TARGET_ACTIONS) delete binds[action.id];
+  rebinding = null;
+  bindNote = "Keys reset.";
+  saveBinds();
+}
+
+function targetActionFor(code, shift) {
+  if (shift && targetCode("target:next") === code) return "target:prev";
+  const hit = TARGET_ACTIONS.find((a) => targetCode(a.id) === code);
+  return hit ? hit.id : null;
+}
+
+function doTargetAction(id) {
+  if (!match || !match.player) return;
+  const player = match.player;
+  if (id === "target:next") {
+    cycleTarget(1);
+    return;
+  }
+  if (id === "target:prev") {
+    cycleTarget(-1);
+    return;
+  }
+  if (id === "target:self") {
+    if (player.hp > 0) player.targetId = player.id;
+    if (match.netRole === "client") sendInput();
+    return;
+  }
+  if (id === "target:friend") {
+    cycleFriend();
+    return;
+  }
+  const enemySlot = /^target:enemy(\d)$/.exec(id);
+  const allySlot = /^target:ally(\d)$/.exec(id);
+  const list = enemySlot
+    ? match.units.filter((u) => u.team !== player.team)
+    : match.units.filter((u) => u.team === player.team && u !== player);
+  const index = Number((enemySlot || allySlot)[1]) - 1;
+  const unit = list[index];
+  if (!unit || unit.hp <= 0 || (enemySlot && isHidden(unit))) return;
+  player.targetId = unit.id;
+  if (match.netRole === "client") sendInput();
 }
 
 function hotStreakReady(unit) {
@@ -2656,6 +3043,17 @@ const SPELL_LOOK = {
   execute: { kind: "slash", color: "#ff4d3a", life: 0.5, size: 1.65 },
   pummel: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.9 },
   heroicLeap: { kind: "ring", color: "#e7c98a", life: 0.8, size: 3.2 },
+  brace: { kind: "burst", color: "#e7c98a", life: 0.45, size: 1.4 },
+  emberWard: { kind: "burst", color: "#ff7a3c", life: 0.5, size: 1.45 },
+  pin: { kind: "bolt", color: "#d9cbb0", life: 0.4, size: 1 },
+  blessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.35 },
+  wither: { kind: "burst", color: "#6b4cff", life: 0.48, size: 1.2 },
+  thicket: { kind: "burst", color: "#7dce6a", life: 0.5, size: 1.3 },
+  step: { kind: "blink", color: "#e6d3b0", life: 0.4, size: 1.2 },
+  tend: { kind: "burst", color: "#5ee0c5", life: 0.48, size: 1.35 },
+  barbs: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.05, round: true },
+  comfort: { kind: "burst", color: "#f2a3c7", life: 0.48, size: 1.35 },
+  flourish: { kind: "slash", color: "#7f9cff", life: 0.45, size: 1.4 },
   spellReflection: { kind: "burst", color: "#9ee7ff", life: 0.5, size: 1.45 },
   trinket: { kind: "ring", color: "#b8fff0", life: 0.55, size: 3.4 },
   frostbolt: { kind: "bolt", color: "#8fd7ff", life: 0.48, size: 1.15 },
@@ -2755,7 +3153,7 @@ function spellVisual(id, source, target, from) {
   if (!look || !match) return;
   const origin = from || { x: source.x, y: source.y, h: 0 };
   const dest = target || source;
-  if (id === "blink" || id === "reel") {
+  if (id === "blink" || id === "reel" || id === "step") {
     spellFx({ kind: "burst", color: look.color, x: origin.x, y: origin.y, h: 1.15, life: look.life, size: look.size });
     spellFx({ kind: "burst", color: look.color, x: source.x, y: source.y, h: 1.15, life: look.life, size: look.size });
     return;
@@ -2954,6 +3352,8 @@ function dealDamage(source, target, raw, meta) {
     if (source) {
       const isolate = target.auras.find((a) => a.id === "isolate" && a.sourceTeam === source.team);
       if (isolate) amount *= 1 + (isolate.damageAmp || 0);
+      const cut = source.auras.reduce((max, aura) => Math.max(max, aura.damageDoneCut || 0), 0);
+      if (cut) amount *= 1 - cut;
     }
     amount = Math.max(1, Math.round(amount));
     const link = target.auras.find((a) => a.link);
@@ -3892,6 +4292,7 @@ function aiVanguard(unit) {
       tryCast(unit, "heroicLeap");
       unit.aimPoint = null;
     }
+    if (unit.hp / unit.hpMax < 0.5) tryCast(unit, "brace");
     if (kill.hp / kill.hpMax <= 0.2) tryCast(unit, "execute", kill);
     tryCast(unit, "mortalStrike", kill);
     if (!kill.auras.some((a) => a.slow)) tryCast(unit, "hamstring", kill);
@@ -3904,6 +4305,7 @@ function aiChanneler(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
   if (unit.hp / unit.hpMax < 0.25) tryCast(unit, "iceBlock");
+  if (unit.hp / unit.hpMax < 0.55 && !unit.auras.some((a) => a.absorb)) tryCast(unit, "emberWard");
   const casting = foeCasting(unit, 30);
   if (casting) tryCast(unit, "counterspell", casting);
   const near = nearestFoe(unit);
@@ -3947,6 +4349,7 @@ function aiRanger(unit) {
   }
   if (kill && !unit.cast) {
     if (dist(unit, kill) <= 5) tryCast(unit, "wingClip", kill);
+    if (dist(unit, kill) >= 8) tryCast(unit, "pin", kill);
     if (near && !near.auras.some((a) => a.slow) && dist(unit, near) >= 8) tryCast(unit, "concussiveShot", near);
     if (!near || dist(unit, near) > 10) tryCast(unit, "aimedShot", kill);
   }
@@ -3968,6 +4371,7 @@ function aiCleric(unit) {
     }
   }
   if (kill && pickDispel(kill, "harm")) tryCast(unit, "dispelMagic", kill);
+  if (lowest && lowest.hp / lowest.hpMax < 0.7 && !hasAura(lowest, "blessing")) tryCast(unit, "blessing", lowest);
   if (lowest && lowest.hp / lowest.hpMax < 0.82 && !hasAura(lowest, "powerWordShield") && !hasAura(lowest, "weakenedSoul")) {
     tryCast(unit, "powerWordShield", lowest);
   }
@@ -4004,6 +4408,7 @@ function aiHexer(unit) {
   ));
   if (off && !unit.cast) tryCast(unit, "fear", off);
   if (kill && !unit.cast) {
+    if (!hasAura(kill, "wither")) tryCast(unit, "wither", kill);
     if (!hasAura(kill, "corruption")) tryCast(unit, "corruption", kill);
     if (!hasAura(kill, "agony")) tryCast(unit, "agony", kill);
     if (!hasAura(kill, "unstableAffliction")) tryCast(unit, "unstableAffliction", kill);
@@ -4019,6 +4424,7 @@ function aiGrovekeeper(unit) {
   const lowest = [...friends].sort((a, b) => a.hp / a.hpMax - b.hp / b.hpMax)[0];
   const kill = pickKillTarget(unit);
   const near = nearestFoe(unit);
+  if (near && dist(unit, near) < 28 && drFactor(near, "root") > 0 && !near.auras.some((a) => a.control === "root")) tryCast(unit, "thicket", near);
   if (lowest && lowest.hp / lowest.hpMax < 0.42) tryCast(unit, "ironbark", lowest);
   for (const friend of friends) {
     if (friend.hp / friend.hpMax < 0.94 && !hasAura(friend, "rejuvenation")) {
@@ -4075,6 +4481,7 @@ function aiShade(unit) {
     if (unit.resource >= 35) tryCast(unit, "eviscerate", kill);
     if (!unit.gcd) tryCast(unit, "sinisterStrike", kill);
   }
+  if (kill && dist(unit, kill) > 6 && dist(unit, kill) <= 20) tryCast(unit, "step", kill);
   if (kill && dist(unit, kill) > 14) tryCast(unit, "sprint");
   if (isVeiled(unit) && kill) unit.goal = pathTo(unit, kill);
   else wantRange(unit, kill, 0, 4.4);
@@ -4104,6 +4511,7 @@ function aiWarden(unit) {
   const foeIn = lit && foesOf(unit).find((f) => !immune(f) && dist(f, lit) <= lanternReach(lit) && hasLoS(lit, f));
   if (foeIn && drFactor(foeIn, "fear") > 0 && (!lowest || lowest.hp / lowest.hpMax > 0.45)) tryCast(unit, "flare");
   if (foeIn && !foeIn.auras.some((a) => a.slow)) tryCast(unit, "snuff");
+  if (lowest && lowest.hp / lowest.hpMax < 0.72 && standingInLantern(unit, lowest)) tryCast(unit, "tend", lowest);
   if (lowest && lowest.hp / lowest.hpMax < 0.84 && !unit.cast) tryCast(unit, "soothe", lowest);
   if (lowest && lowest.hp / lowest.hpMax < 0.58 && !unit.cast) tryCast(unit, "mend", lowest);
   if (!unit.cast) {
@@ -4134,6 +4542,7 @@ function aiBinder(unit) {
     }
     if (stacks >= 3 && d <= 30 && !kill.auras.some((a) => a.control === "stun")) tryCast(unit, "yank", kill);
     if (stacks >= 3) tryCast(unit, "sever", kill);
+    if (stacks < 3) tryCast(unit, "barbs", kill);
     if (stacks < 3) tryCast(unit, "lash", kill);
     if (stacks >= 1 && !kill.auras.some((a) => a.id === "brand" && a.dot?.sourceId === unit.id)) tryCast(unit, "brand", kill);
     if (!kill.auras.some((a) => a.slow)) tryCast(unit, "hobble", kill);
@@ -4158,6 +4567,7 @@ function aiVow(unit) {
     }
   }
   if (lowest && lowest.hp / lowest.hpMax < 0.92 && !hasAura(lowest, "thread")) tryCast(unit, "thread", lowest);
+  if (lowest && lowest.hp / lowest.hpMax < 0.75) tryCast(unit, "comfort");
   if (lowest && lowest.hp / lowest.hpMax < 0.8 && !unit.cast) tryCast(unit, "pulse", lowest);
   if (lowest && lowest.hp / lowest.hpMax < 0.58 && !unit.cast) tryCast(unit, "chorus", lowest);
   if (!unit.cast && kill && friends.every((f) => f.hp / f.hpMax > 0.86)) tryCast(unit, "rebuke", kill);
@@ -4182,6 +4592,7 @@ function aiDuelist(unit) {
     if (off) tryCast(unit, "feint", off);
     if (d <= 5) {
       tryCast(unit, "riposte", kill);
+      if (unit.resource >= 40 && isDuelMark(unit, kill)) tryCast(unit, "flourish", kill);
       if (unit.resource >= 40) tryCast(unit, "crosscut", kill);
       tryCast(unit, "fleche", kill);
     }
@@ -4497,7 +4908,7 @@ function buildMatchUi() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `ability ${ability.tag === "Signature" ? "signature" : ""} ${ability.tag === "Trinket" ? "trinket" : ""}`;
-    btn.innerHTML = `<span class="key">${ability.key.toUpperCase()}</span><span class="short">${ability.short}</span><span class="cost"></span><span class="sweep"></span><span class="cd"></span>`;
+    btn.innerHTML = `<span class="key">${bindFor(ability).toUpperCase()}</span><span class="short">${ability.short}</span><span class="cost"></span><span class="sweep"></span><span class="cd"></span>`;
     btn.addEventListener("mousedown", (e) => e.preventDefault());
     btn.addEventListener("click", () => pressAbility(ability));
     btn.addEventListener("mouseenter", (e) => {
@@ -5267,7 +5678,7 @@ function renderLobby() {
   const root = $("lobby");
   const card = (id, selected) => {
     const cls = CLASSES[id];
-    const spells = cls.abilities.map((a) => `<li>${esc(a.name)}<span>${a.key.toUpperCase()}</span></li>`).join("");
+    const spells = cls.abilities.map((a) => `<li>${esc(a.name)}<span>${esc(bindFor(a).toUpperCase())}</span></li>`).join("");
     return `<button type="button" class="class-card ${selected ? "selected" : ""}" data-class="${id}" style="--accent:${cls.color}">
       <header><h2>${esc(cls.name)}</h2><span class="role">${esc(cls.role)} · ${esc(cls.resource.name)}</span></header>
       <ul>${spells}</ul>
@@ -5348,6 +5759,17 @@ function renderLobby() {
     <div class="class-grid" id="pick-player">
       ${Object.keys(CLASSES).map((id) => card(id, setup.player === id)).join("")}
     </div>
+    <div class="section-label">Keybinds</div>
+    <p class="net-status">${esc(bindPrompt(picked))}</p>
+    <div class="section-label">Targeting</div>
+    <div class="bind-grid">
+      ${TARGET_ACTIONS.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(codeLabel(targetCode(a.id)))}</b></button>`).join("")}
+    </div>
+    <div class="section-label">Spells</div>
+    <div class="bind-grid">
+      ${picked.abilities.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(bindFor(a).toUpperCase())}</b></button>`).join("")}
+    </div>
+    <div class="lobby-actions"><button type="button" class="text-btn" id="reset-binds">Reset keys</button></div>
     ${teams}
     <div class="dossier" id="dossier"></div>`;
 
@@ -5412,6 +5834,19 @@ function renderLobby() {
       renderLobby();
     });
   }
+  root.querySelectorAll("[data-bind]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      rebinding = btn.dataset.bind;
+      bindNote = "";
+      renderLobby();
+    });
+  });
+  if ($("reset-binds")) {
+    $("reset-binds").addEventListener("click", () => {
+      resetBinds();
+      renderLobby();
+    });
+  }
   if ($("find-match")) $("find-match").addEventListener("click", findMatch);
   if ($("cancel-queue")) $("cancel-queue").addEventListener("click", cancelQueue);
   if ($("host-room")) $("host-room").addEventListener("click", hostRoom);
@@ -5462,7 +5897,7 @@ function renderDossier() {
     const bits = [a.channel ? `${a.castTime}s channel` : a.castTime ? `${a.castTime}s cast` : "Instant"];
     if (a.cost) bits.push(`${a.cost} ${cls.resource.name.toLowerCase()}`);
     if (a.cd) bits.push(`${a.cd}s cd`);
-    return `<article><strong>${a.key.toUpperCase()} · ${esc(a.name)}</strong><p>${esc(bits.join(" · "))}. ${esc(a.blurb)}</p></article>`;
+    return `<article><strong>${bindFor(a).toUpperCase()} · ${esc(a.name)}</strong><p>${esc(bits.join(" · "))}. ${esc(a.blurb)}</p></article>`;
   }).join("");
 }
 
@@ -5490,23 +5925,40 @@ function cycleFriend() {
 
 function onKeyDown(e) {
   if (e.repeat) return;
+  if (rebinding && (!match || $("match").classList.contains("hidden"))) {
+    e.preventDefault();
+    const moving = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+    const targetKey = e.code === "Tab" || /^F([1-9]|1[0-2])$/.test(e.code);
+    if (e.code === "Escape") {
+      rebinding = null;
+      bindNote = "";
+    } else if (moving.includes(e.code)) {
+      bindNote = "That key is for moving or jumping.";
+    } else if (rebinding.startsWith("target:") && (BIND_CODES[e.code] || targetKey)) {
+      setTargetBind(rebinding, e.code);
+      bindNote = "";
+      rebinding = null;
+    } else if (!rebinding.startsWith("target:") && BIND_CODES[e.code]) {
+      setBind(rebinding, BIND_CODES[e.code]);
+      bindNote = "";
+      rebinding = null;
+    } else if (targetKey) {
+      bindNote = "Tab and the F keys are for targeting.";
+    } else {
+      bindNote = rebinding.startsWith("target:")
+        ? "Use a letter, a number, Tab, or an F key."
+        : "Use 1–6, Q, E, R, T, F, G, Z, X, C, V, B, Y, or H.";
+    }
+    renderLobby();
+    return;
+  }
   keysDown.add(e.code);
   if (!$("match") || $("match").classList.contains("hidden") || !match) return;
   const player = match.player;
-  if (["Space", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
-  if (e.code === "Tab") {
-    cycleTarget(e.shiftKey ? -1 : 1);
-    return;
-  }
-  if (e.code === "F1") {
-    e.preventDefault();
-    if (player.hp > 0) player.targetId = player.id;
-    if (match.netRole === "client") sendInput();
-    return;
-  }
-  if (e.code === "F2") {
-    e.preventDefault();
-    cycleFriend();
+  if (["Space", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code) || /^F([1-9]|1[0-2])$/.test(e.code)) e.preventDefault();
+  const targetAction = targetActionFor(e.code, e.shiftKey);
+  if (targetAction) {
+    doTargetAction(targetAction);
     return;
   }
   if (e.code === "Space") {
@@ -5521,14 +5973,9 @@ function onKeyDown(e) {
     else player.targetId = player.id;
     return;
   }
-  const keyMap = {
-    Digit1: "1", Digit2: "2", Digit3: "3", Digit4: "4",
-    Numpad1: "1", Numpad2: "2", Numpad3: "3", Numpad4: "4",
-    KeyE: "e", KeyQ: "q", KeyR: "r", KeyC: "c", KeyT: "t", KeyF: "f",
-  };
-  const key = keyMap[e.code];
+  const key = BIND_CODES[e.code];
   if (!key || player.hp <= 0) return;
-  const ability = player.abilities.find((a) => a.key === key);
+  const ability = player.abilities.find((a) => bindFor(a) === key);
   if (!ability) return;
   if (ability) pressAbility(ability);
 }
