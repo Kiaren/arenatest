@@ -49,8 +49,8 @@
           if (gen !== generation) return;
           let msg;
           try { msg = JSON.parse(ev.data); } catch (err) { return; }
-          if (msg.t === "hello" || msg.t === "created" || msg.t === "joined") {
-            if (msg.id) net.id = msg.id;
+          if (msg.id && (msg.t === "hello" || msg.t === "created" || msg.t === "joined" || msg.t === "queue" || msg.t === "msg")) {
+            net.id = msg.id;
             if (msg.hostId) net.hostId = msg.hostId;
             if (msg.code) net.code = msg.code;
             if (msg.members) net.members = msg.members;
@@ -66,6 +66,9 @@
     create(name) { this._send({ t: "create", name }); },
     join(code, name) { this._send({ t: "join", code, name }); },
     send(data) { this._send({ t: "relay", data }); },
+    queue(size, classId, name) { this._send({ t: "queue", size, classId, name }); },
+    leaveQueue() { this._send({ t: "leave-queue" }); },
+    play(data) { this._send({ t: "play", data }); },
     _send(obj) {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
     },

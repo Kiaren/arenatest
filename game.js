@@ -3556,16 +3556,19 @@ function createMatch(spec) {
     reflectLock: false,
     setup: spec,
     netRole: spec.netRole || "local",
+    serverAuth: !!spec.serverAuth,
     winSide: null,
   };
   netSend = 0;
   combat("Take your positions. Gates open in a moment.");
   hoverAbility = null;
   buildMatchUi();
-  $("lobby").classList.add("hidden");
-  $("match").classList.remove("hidden");
-  $("result").classList.add("hidden");
-  requestAnimationFrame(resizeCanvas);
+  if (!window.HEADLESS) {
+    $("lobby").classList.add("hidden");
+    $("match").classList.remove("hidden");
+    $("result").classList.add("hidden");
+    requestAnimationFrame(resizeCanvas);
+  }
 }
 
 function tickAuras(unit, dt) {
@@ -4468,6 +4471,7 @@ function fmtTime(t) {
 }
 
 function buildMatchUi() {
+  if (window.HEADLESS) return;
   const enemyWrap = $("enemy-frames");
   const partyWrap = $("party-frames");
   enemyWrap.innerHTML = "";
@@ -4646,6 +4650,7 @@ function resizeCanvas() {
 }
 
 function showResult() {
+  if (window.HEADLESS) return;
   const rows = match.units.map((u) => `<tr><td>${u.name}</td><td>${CLASSES[u.classId].name}</td><td>${Math.round(u.stats.damage)}</td><td>${Math.round(u.stats.healing)}</td><td>${u.hp > 0 ? "Up" : "Dead"}</td></tr>`).join("");
   $("result").innerHTML = `
     <div class="result-card">
@@ -4673,6 +4678,7 @@ const setup = {
 };
 let playMode = "local";
 let room = null;
+let queueing = false;
 let netStatus = "";
 let playerName = "Player";
 let serverUrl = "";
@@ -4751,7 +4757,7 @@ function sendInput(extra) {
       aimY: extra.aimY == null ? null : extra.aimY,
     };
   }
-  ArenaNet.send({
+  const payload = {
     kind: "input",
     wishX: wish.wishX,
     wishY: wish.wishY,
@@ -4761,7 +4767,25 @@ function sendInput(extra) {
     jumpSeq: netCmds.jump,
     cancelSeq: netCmds.cancel,
     cast: netCmds.castMsg,
-  });
+  };
+  if (match.serverAuth) ArenaNet.play(payload);
+  else ArenaNet.send(payload);
+}
+
+function applyNetInput(peerId, data) {
+  if (!match || !data) return;
+  const unit = match.units.find((u) => u.peerId === peerId);
+  if (unit) unit.remote = data;
+}
+
+function dropHuman(peerId) {
+  if (!match) return;
+  const unit = match.units.find((u) => u.peerId === peerId);
+  if (!unit) return;
+  unit.human = false;
+  unit.peerId = null;
+  unit.remote = null;
+  unit.aiTimer = 0.15;
 }
 
 function pumpInput(dt) {
@@ -4947,6 +4971,11 @@ function returnToLobby() {
 
 function requestRematch() {
   if (!match) return;
+  if (match.serverAuth) {
+    if (window.ArenaNet) ArenaNet.queue(setup.size, setup.player, playerName);
+    returnToLobby();
+    return;
+  }
   if (match.netRole === "client") {
     if (window.ArenaNet) ArenaNet.send({ kind: "rematch" });
     return;
@@ -4960,6 +4989,11 @@ function requestRematch() {
 }
 
 function requestBack() {
+  if (match && match.serverAuth) {
+    if (window.ArenaNet) ArenaNet.play({ kind: "leave" });
+    returnToLobby();
+    return;
+  }
   if (match && match.netRole === "client") {
     if (window.ArenaNet) ArenaNet.send({ kind: "back" });
     return;
@@ -5031,6 +5065,13 @@ function clearPeer(peerId) {
 
 function onNetMessage(msg) {
   if (!msg) return;
+  if (msg.t === "queue") {
+    queueing = true;
+    const label = msg.size === 1 ? "1v1" : msg.size === 3 ? "3v3" : "2v2";
+    netStatus = `Looking for a ${label}. ${msg.waiting} of ${msg.need} players.`;
+    if (!match) renderLobby();
+    return;
+  }
   if (msg.t === "error") {
     netStatus = msg.text || "Could not join.";
     renderLobby();
@@ -5099,6 +5140,11 @@ function onNetMessage(msg) {
     return;
   }
   if (data.kind === "start" && data.roster) {
+    if (data.server) {
+      queueing = false;
+      createMatch({ roster: data.roster, netRole: "client", serverAuth: true });
+      return;
+    }
     const seated = data.roster.some((r) => r.peerId && window.ArenaNet && r.peerId === ArenaNet.id);
     if (!seated && !iAmHost()) {
       netStatus = "That match started without you. Claim a slot for the next one.";
@@ -5125,6 +5171,29 @@ function onNetMessage(msg) {
     if (iAmHost() && window.ArenaNet) ArenaNet.send({ kind: "back" });
     returnToLobby();
   }
+}
+
+async function findMatch() {
+  if (queueing) return;
+  readIdentity();
+  fitTeams();
+  netStatus = "Connecting…";
+  renderLobby();
+  try {
+    await ArenaNet.connect(defaultServer());
+    ArenaNet.queue(setup.size, setup.player, playerName);
+  } catch (err) {
+    queueing = false;
+    netStatus = err.message || "Could not reach the server.";
+    renderLobby();
+  }
+}
+
+function cancelQueue() {
+  queueing = false;
+  netStatus = "";
+  if (window.ArenaNet && ArenaNet.connected) ArenaNet.leaveQueue();
+  renderLobby();
 }
 
 async function hostRoom() {
@@ -5226,7 +5295,11 @@ function renderLobby() {
         <input id="server-url" value="${esc(defaultServer())}" placeholder="ws://127.0.0.1:8780" />
       </div>
       <div class="lobby-field">
-        <button class="start-btn" id="host-room" type="button">Host room</button>
+        <button class="start-btn" id="find-match" type="button">${queueing ? "In queue" : "Find match"}</button>
+        ${queueing ? `<button class="text-btn" id="cancel-queue" type="button">Cancel</button>` : ""}
+      </div>
+      <div class="lobby-field">
+        <button class="text-btn" id="host-room" type="button">Host room</button>
         <input id="room-code-input" maxlength="5" placeholder="Code" />
         <button class="text-btn" id="join-room" type="button">Join</button>
       </div>
@@ -5263,7 +5336,7 @@ function renderLobby() {
   root.innerHTML = `
     <div class="hero">
       <h1>Arena</h1>
-      <p>A 3D arena for 1v1, 2v2, and 3v3. Play locally against AI, or host a room and fight other people. The pillar blocks line of sight and movement. Right-drag orbits the camera. Space jumps. Spells are 1–4, E, Q, and R. Channelers also have Inferno on C. Hexers stack curses. Grovekeepers keep heals over time rolling. Shades open from the veil. Wardens heal from a lantern. Binders yank with a chain. Vows share healing. Duelists fight one marked target. Ground spells are aimed with a circle. Healing falls off as dampening rises.</p>
+      <p>A 3D arena for 1v1, 2v2, and 3v3. Find match puts you in a queue and the server runs the fight. You can still host a private room. The pillar blocks line of sight and movement. Right-drag orbits the camera. Space jumps. Spells are 1–4, E, Q, and R. Channelers also have Inferno on C. Hexers stack curses. Grovekeepers keep heals over time rolling. Shades open from the veil. Wardens heal from a lantern. Binders yank with a chain. Vows share healing. Duelists fight one marked target. Ground spells are aimed with a circle. Healing falls off as dampening rises.</p>
     </div>
     <div class="section-label">Match</div>
     <div class="choice-row">
@@ -5339,6 +5412,8 @@ function renderLobby() {
       renderLobby();
     });
   }
+  if ($("find-match")) $("find-match").addEventListener("click", findMatch);
+  if ($("cancel-queue")) $("cancel-queue").addEventListener("click", cancelQueue);
   if ($("host-room")) $("host-room").addEventListener("click", hostRoom);
   if ($("join-room")) $("join-room").addEventListener("click", joinRoom);
   if ($("leave-room")) $("leave-room").addEventListener("click", leaveNetRoom);
@@ -5492,34 +5567,36 @@ function canvasClick(e) {
   if (best) selectTarget(best.id);
 }
 
-let last = performance.now();
-function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-  if (match && !$("match").classList.contains("hidden")) {
-    update(dt);
-    updateHud();
-    if (window.ArenaView) ArenaView.render(match, dt);
+if (!window.HEADLESS) {
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (match && !$("match").classList.contains("hidden")) {
+      update(dt);
+      updateHud();
+      if (window.ArenaView) ArenaView.render(match, dt);
+    }
+    requestAnimationFrame(frame);
   }
-  requestAnimationFrame(frame);
-}
 
-window.addEventListener("keydown", onKeyDown);
-window.addEventListener("keyup", onKeyUp);
-window.addEventListener("pointermove", (e) => {
-  lastPointer = { x: e.clientX, y: e.clientY };
-});
-window.addEventListener("resize", resizeCanvas);
-document.addEventListener("mousemove", moveTip);
-window.addEventListener("load", () => {
-  if (window.ArenaNet) ArenaNet.on(onNetMessage);
-  renderLobby();
-  resizeCanvas();
-  const stage = $("stage");
-  if (window.ResizeObserver && stage) new ResizeObserver(() => resizeCanvas()).observe(stage);
-  requestAnimationFrame(frame);
-  if (window.ArenaView) ArenaView.bind(canvasClick);
-});
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("pointermove", (e) => {
+    lastPointer = { x: e.clientX, y: e.clientY };
+  });
+  window.addEventListener("resize", resizeCanvas);
+  document.addEventListener("mousemove", moveTip);
+  window.addEventListener("load", () => {
+    if (window.ArenaNet) ArenaNet.on(onNetMessage);
+    renderLobby();
+    resizeCanvas();
+    const stage = $("stage");
+    if (window.ResizeObserver && stage) new ResizeObserver(() => resizeCanvas()).observe(stage);
+    requestAnimationFrame(frame);
+    if (window.ArenaView) ArenaView.bind(canvasClick);
+  });
+}
 
 window.Arena = {
   TUNE,
@@ -5531,4 +5608,7 @@ window.Arena = {
   createMatch,
   tryCast,
   step: update,
+  pack: packMatch,
+  applyNetInput,
+  dropHuman,
 };

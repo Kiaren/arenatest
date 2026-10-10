@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Serves this folder and relays online rooms.
+ * Serves this folder, relays private rooms, and runs matchmaking.
  * Run: node server.js
  * Then open http://127.0.0.1:8780
  */
@@ -10,6 +10,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const vm = require("vm");
 
 const PORT = Number(process.env.PORT) || 8780;
 const ROOT = __dirname;
@@ -25,7 +26,131 @@ const TYPES = {
 };
 
 const rooms = new Map();
+const queues = { 1: [], 2: [], 3: [] };
+const live = new Map();
+const CLASS_IDS = new Set(["warrior", "mage", "hunter", "priest", "warlock", "druid", "rogue", "warden", "binder", "vow", "duelist"]);
 let nextId = 1;
+let nextMatch = 1;
+let simScript = null;
+
+function arenaScript() {
+  if (!simScript) simScript = new vm.Script(fs.readFileSync(path.join(ROOT, "game.js"), "utf8"), { filename: "game.js" });
+  return simScript;
+}
+
+function bootArena() {
+  const sandbox = {
+    console,
+    HEADLESS: true,
+    performance: { now: () => Date.now() },
+    requestAnimationFrame() {},
+    cancelAnimationFrame() {},
+    setTimeout,
+    clearTimeout,
+    Math,
+    Date,
+    JSON,
+    Object,
+    Array,
+    Number,
+    String,
+    Boolean,
+    parseInt,
+    parseFloat,
+    isNaN,
+    Infinity,
+    NaN,
+    undefined,
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  sandbox.self = sandbox;
+  sandbox.document = {
+    getElementById() { return null; },
+    addEventListener() {},
+    createElement() { return null; },
+  };
+  vm.createContext(sandbox);
+  arenaScript().runInContext(sandbox);
+  return sandbox.Arena;
+}
+
+function laneYs(size) {
+  if (size === 1) return [20];
+  if (size === 2) return [22, 38];
+  return [16, 30, 44];
+}
+
+function unqueue(member) {
+  const size = member.queueSize;
+  if (!size || !queues[size]) return 0;
+  const q = queues[size];
+  const i = q.indexOf(member);
+  if (i >= 0) q.splice(i, 1);
+  member.queueSize = 0;
+  return size;
+}
+
+function publishQueue(size) {
+  const q = queues[size];
+  if (!q) return;
+  const need = size * 2;
+  for (const member of q) send(member.socket, { t: "queue", id: member.id, size, waiting: q.length, need });
+}
+
+function dropLive(member) {
+  const liveMatch = member.live;
+  if (!liveMatch) return;
+  liveMatch.members.delete(member);
+  member.live = null;
+  try { liveMatch.arena.dropHuman(member.id); } catch (err) { /* already gone */ }
+  if (liveMatch.members.size === 0) live.delete(liveMatch.id);
+}
+
+function tryFill(size) {
+  const need = size * 2;
+  const q = queues[size];
+  if (!q || q.length < need) return;
+  const group = q.splice(0, need);
+  for (const member of group) member.queueSize = 0;
+  for (let i = group.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const swap = group[i];
+    group[i] = group[j];
+    group[j] = swap;
+  }
+  const ys = laneYs(size);
+  const roster = group.map((member, i) => {
+    const team = i < size ? "ally" : "enemy";
+    return {
+      id: i + 1,
+      classId: member.classId,
+      team,
+      x: team === "ally" ? 18 : 82,
+      y: ys[i % size],
+      human: true,
+      peerId: member.id,
+      name: member.name,
+    };
+  });
+  let arena;
+  try {
+    arena = bootArena();
+    arena.createMatch({ roster, netRole: "server" });
+  } catch (err) {
+    console.error(err);
+    for (const member of group) send(member.socket, { t: "error", text: "The match could not start." });
+    return;
+  }
+  const id = nextMatch++;
+  const liveMatch = { id, arena, members: new Set(group), endTicks: 0 };
+  live.set(id, liveMatch);
+  for (const member of group) {
+    member.live = liveMatch;
+    send(member.socket, { t: "msg", from: 0, id: member.id, data: { kind: "start", roster, server: true } });
+  }
+  if (q.length) publishQueue(size);
+}
 
 function sendRaw(socket, text) {
   const payload = Buffer.from(text);
@@ -73,6 +198,9 @@ function broadcast(room, obj, exceptId) {
 }
 
 function leave(member) {
+  const queued = unqueue(member);
+  if (queued) publishQueue(queued);
+  dropLive(member);
   const room = member.room;
   if (!room) return;
   room.members.delete(member.id);
@@ -119,6 +247,39 @@ function onText(member, text) {
     member.room = room;
     send(member.socket, { t: "joined", code, id: member.id, hostId: room.hostId, members: membersOf(room) });
     broadcast(room, { t: "peer", id: member.id, hostId: room.hostId, members: membersOf(room) }, member.id);
+    return;
+  }
+  if (msg.t === "queue") {
+    const size = Number(msg.size);
+    if (size !== 1 && size !== 2 && size !== 3) {
+      send(member.socket, { t: "error", text: "Pick 1v1, 2v2, or 3v3." });
+      return;
+    }
+    if (member.room) leave(member);
+    dropLive(member);
+    const queued = unqueue(member);
+    if (queued && queued !== size) publishQueue(queued);
+    member.name = String(msg.name || "Player").slice(0, 16);
+    member.classId = CLASS_IDS.has(msg.classId) ? msg.classId : "warrior";
+    queues[size].push(member);
+    member.queueSize = size;
+    publishQueue(size);
+    tryFill(size);
+    return;
+  }
+  if (msg.t === "leave-queue") {
+    const queued = unqueue(member);
+    if (queued) publishQueue(queued);
+    return;
+  }
+  if (msg.t === "play" && member.live && msg.data) {
+    if (msg.data.kind === "leave") {
+      dropLive(member);
+      return;
+    }
+    if (msg.data.kind === "input") {
+      try { member.live.arena.applyNetInput(member.id, msg.data); } catch (err) { /* ignore bad input */ }
+    }
     return;
   }
   if (msg.t === "relay" && member.room) {
@@ -207,7 +368,7 @@ server.on("upgrade", (req, socket) => {
     "Connection: Upgrade\r\n" +
     "Sec-WebSocket-Accept: " + accept + "\r\n\r\n"
   );
-  const member = { id: nextId++, name: "Player", socket, room: null, buf: Buffer.alloc(0) };
+  const member = { id: nextId++, name: "Player", classId: "warrior", socket, room: null, queueSize: 0, live: null, buf: Buffer.alloc(0) };
   socket.on("data", (chunk) => {
     member.buf = Buffer.concat([member.buf, chunk]);
     consume(member);
@@ -215,6 +376,30 @@ server.on("upgrade", (req, socket) => {
   socket.on("close", () => leave(member));
   socket.on("error", () => leave(member));
 });
+
+setInterval(() => {
+  for (const [id, liveMatch] of live) {
+    if (liveMatch.members.size === 0) {
+      live.delete(id);
+      continue;
+    }
+    const sim = liveMatch.arena.match;
+    if (!sim) continue;
+    try {
+      if (sim.phase !== "end") liveMatch.arena.step(0.05);
+      const state = liveMatch.arena.pack();
+      const msg = { t: "msg", from: 0, data: { kind: "snap", state } };
+      for (const member of liveMatch.members) send(member.socket, msg);
+      if (sim.phase === "end") {
+        liveMatch.endTicks += 1;
+        if (liveMatch.endTicks > 40) live.delete(id);
+      }
+    } catch (err) {
+      console.error(err);
+      live.delete(id);
+    }
+  }
+}, 50);
 
 server.listen(PORT, () => {
   console.log("Arena is at http://127.0.0.1:" + PORT);
