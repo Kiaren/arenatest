@@ -22,6 +22,42 @@ const TUNE = {
 
 const PILLAR = { x: 50, y: 30, hw: 5.2, hh: 7.4 };
 
+const MAP_ORDER = ["court", "bridge", "pillars"];
+
+const MAPS = {
+  court: {
+    id: "court",
+    name: "Sand Court",
+    blocks: [{ x: 50, y: 30, hw: 5.2, hh: 7.4 }],
+  },
+  bridge: {
+    id: "bridge",
+    name: "The Span",
+    blocks: [
+      { x: 32, y: 30, hw: 1.7, hh: 1.7, below: 4.85 },
+      { x: 50, y: 30, hw: 1.7, hh: 1.7, below: 4.85 },
+      { x: 68, y: 30, hw: 1.7, hh: 1.7, below: 4.85 },
+    ],
+    deck: { x0: 16, x1: 84, y0: 25.6, y1: 34.4, top: 5.6, thick: 0.8 },
+    ramps: [
+      { x0: 8, x1: 16, y0: 25.6, y1: 34.4, top: 5.6, high: "end" },
+      { x0: 84, x1: 92, y0: 25.6, y1: 34.4, top: 5.6, high: "start" },
+    ],
+  },
+  pillars: {
+    id: "pillars",
+    name: "Four Pillars",
+    blocks: [
+      { x: 36, y: 20, hw: 3.05, hh: 3.05 },
+      { x: 64, y: 20, hw: 3.05, hh: 3.05 },
+      { x: 36, y: 40, hw: 3.05, hh: 3.05 },
+      { x: 64, y: 40, hw: 3.05, hh: 3.05 },
+    ],
+  },
+};
+
+let trainMap = "court";
+
 const SPELL_KEYS = ["1", "2", "3", "4", "e", "q", "r", "c", "x", "z"];
 
 const CLASS_COLORS = {
@@ -231,7 +267,7 @@ const CLASSES = {
         marker: 1.5,
         school: "physical",
         target: "ground",
-        blurb: "Aim a spot 8–40 yards away and leap there, clearing roots. You arc over the pillar.",
+        blurb: "Aim a spot 8–40 yards away and leap there, clearing roots. You arc over walls and the bridge.",
         effect(source) {
           const raw = source.aimPoint || { x: source.x + Math.cos(source.facing) * 12, y: source.y + Math.sin(source.facing) * 12 };
           let dx = raw.x - source.x;
@@ -244,6 +280,8 @@ const CLASSES = {
           }
           const spot = { x: source.x + dx, y: source.y + dy };
           const travel = clamp(d / 26, 0.28, 0.85);
+          const aimFeet = source.aimPoint && typeof source.aimPoint.h === "number" ? source.aimPoint.h : source.height;
+          const floor1 = standSurface(spot.x, spot.y, aimFeet + 0.5);
           source.dash = {
             x: spot.x,
             y: spot.y,
@@ -251,12 +289,13 @@ const CLASSES = {
             dur: travel,
             leap: true,
             arc: 1.8 + Math.min(3.2, d * 0.05),
+            floor0: source.height,
+            floor1: floor1 == null ? 0 : floor1,
           };
           source.vx = 0;
           source.vy = 0;
           source.vz = 0;
           source.knock = 0;
-          source.height = 0.15;
           source.facing = Math.atan2(dy, dx);
           source.auras = source.auras.filter((a) => a.control !== "root");
           combat(`${nameOf(source)} leaps.`);
@@ -446,7 +485,7 @@ const CLASSES = {
         school: "magic",
         target: "aoe",
         radius: 8,
-        blurb: "Roots nearby enemies for up to 4 sec. Root diminishing returns. Magic, so it can be dispelled. Does not hit through the pillar.",
+        blurb: "Roots nearby enemies for up to 4 sec. Root diminishing returns. Magic, so it can be dispelled. Does not hit through walls or the bridge deck.",
         extra(source) {
           const hits = unitsInRadius(source, 8, (u) => u.team !== source.team && u.hp > 0 && hasLoS(source, u));
           if (!hits.length) return "Nobody in range";
@@ -647,11 +686,13 @@ const CLASSES = {
         effect(source) {
           const spot = source.aimPoint || { x: source.x, y: source.y };
           match.traps = match.traps.filter((t) => t.ownerId !== source.id);
+          const trapH = standSurface(spot.x, spot.y, (typeof spot.h === "number" ? spot.h : source.height) + 0.4);
           match.traps.push({
             ownerId: source.id,
             team: source.team,
             x: spot.x,
             y: spot.y,
+            h: trapH == null ? 0 : trapH,
             arm: 0.7,
             life: 25,
             radius: 3,
@@ -893,7 +934,7 @@ const CLASSES = {
         school: "magic",
         target: "aoe",
         radius: 8,
-        blurb: "Fears nearby enemies for up to 4 sec. Fear diminishing returns. Magic, so it can be dispelled. Does not hit through the pillar.",
+        blurb: "Fears nearby enemies for up to 4 sec. Fear diminishing returns. Magic, so it can be dispelled. Does not hit through walls or the bridge deck.",
         extra(source) {
           const hits = unitsInRadius(source, 8, (u) => u.team !== source.team && u.hp > 0 && hasLoS(source, u));
           if (!hits.length) return "Nobody in range";
@@ -1738,11 +1779,13 @@ const CLASSES = {
           const spot = source.aimPoint || { x: source.x, y: source.y };
           const beacon = source.auras.find((a) => a.id === "beacon");
           match.lanterns = (match.lanterns || []).filter((l) => l.ownerId !== source.id);
+          const lanternH = standSurface(spot.x, spot.y, (typeof spot.h === "number" ? spot.h : source.height) + 0.4);
           match.lanterns.push({
             ownerId: source.id,
             team: source.team,
             x: spot.x,
             y: spot.y,
+            h: lanternH == null ? 0 : lanternH,
             life: 12,
             radius: 8,
             tick: 0.6,
@@ -2909,8 +2952,19 @@ function nameOf(unit) {
   return unit ? unit.name : "Unknown";
 }
 
+function footOf(u) {
+  if (!u) return 0;
+  if (typeof u.height === "number") return u.height;
+  if (typeof u.h === "number") return u.h;
+  return 0;
+}
+
 function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = footOf(a) - footOf(b);
+  if (Math.abs(dz) < 2.2) return Math.hypot(dx, dy);
+  return Math.hypot(dx, dy, dz);
 }
 
 function clamp(v, a, b) {
@@ -2956,78 +3010,159 @@ function speedMul(unit) {
   return (1 - slow) * (1 + bonus);
 }
 
-function pillarBox(pad = 0) {
+function rollMap() {
+  return MAP_ORDER[Math.floor(Math.random() * MAP_ORDER.length)];
+}
+
+function activeMap() {
+  if (match && MAPS[match.map]) return MAPS[match.map];
+  return MAPS.court;
+}
+
+function inRect(x, y, rect) {
+  return x >= rect.x0 && x <= rect.x1 && y >= rect.y0 && y <= rect.y1;
+}
+
+function rampTop(ramp, x, y) {
+  if (!inRect(x, y, ramp)) return null;
+  const t = (x - ramp.x0) / (ramp.x1 - ramp.x0 || 1);
+  const u = ramp.high === "start" ? 1 - t : t;
+  return ramp.top * clamp(u, 0, 1);
+}
+
+function standSurface(x, y, feet) {
+  const map = activeMap();
+  let surface = 0;
+  let blocked = false;
+  for (const ramp of map.ramps || []) {
+    const h = rampTop(ramp, x, y);
+    if (h == null) continue;
+    if (h <= feet + 0.9) surface = Math.max(surface, h);
+    else blocked = true;
+  }
+  const deck = map.deck;
+  if (deck && inRect(x, y, deck) && feet >= deck.top - deck.thick - 0.45) {
+    surface = Math.max(surface, deck.top);
+  }
+  if (blocked && surface <= feet + 0.05) return null;
+  return surface;
+}
+
+function underDeck(x, y, feet) {
+  const deck = activeMap().deck;
+  if (!deck || !inRect(x, y, deck)) return false;
+  return feet < deck.top - deck.thick - 0.45;
+}
+
+function blockAabb(block, pad = 0) {
   return {
-    minX: PILLAR.x - PILLAR.hw - pad,
-    maxX: PILLAR.x + PILLAR.hw + pad,
-    minY: PILLAR.y - PILLAR.hh - pad,
-    maxY: PILLAR.y + PILLAR.hh + pad,
+    minX: block.x - block.hw - pad,
+    maxX: block.x + block.hw + pad,
+    minY: block.y - block.hh - pad,
+    maxY: block.y + block.hh + pad,
+    minZ: 0,
+    maxZ: block.below != null ? block.below : 16,
   };
 }
 
-function segmentHits(x1, y1, x2, y2, box) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+function tallBoxes() {
+  return activeMap().blocks.filter((block) => block.below == null).map((block) => blockAabb(block, 0));
+}
+
+function segmentHitsBox(x1, y1, z1, x2, y2, z2, box) {
+  const delta = [x2 - x1, y2 - y1, z2 - z1];
+  const origin = [x1, y1, z1];
+  const min = [box.minX, box.minY, box.minZ];
+  const max = [box.maxX, box.maxY, box.maxZ];
   let tmin = 0;
   let tmax = 1;
-  const checks = [
-    { p: -dx, q: x1 - box.minX },
-    { p: dx, q: box.maxX - x1 },
-    { p: -dy, q: y1 - box.minY },
-    { p: dy, q: box.maxY - y1 },
-  ];
-  for (const { p, q } of checks) {
-    if (Math.abs(p) < 1e-8) {
-      if (q < 0) return false;
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(delta[i]) < 1e-8) {
+      if (origin[i] < min[i] || origin[i] > max[i]) return false;
     } else {
-      const r = q / p;
-      if (p < 0) {
-        if (r > tmax) return false;
-        if (r > tmin) tmin = r;
-      } else {
-        if (r < tmin) return false;
-        if (r < tmax) tmax = r;
+      let t1 = (min[i] - origin[i]) / delta[i];
+      let t2 = (max[i] - origin[i]) / delta[i];
+      if (t1 > t2) {
+        const swap = t1;
+        t1 = t2;
+        t2 = swap;
       }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) return false;
     }
   }
-  return tmax >= tmin && tmin <= 1 && tmax >= 0;
+  return tmax >= 0 && tmin <= 1;
+}
+
+function eyeOf(unit) {
+  const h = typeof unit.height === "number"
+    ? unit.height
+    : (typeof unit.h === "number" ? unit.h : (standSurface(unit.x, unit.y, 0) || 0));
+  return { x: unit.x, y: unit.y, z: h + 1.25 };
 }
 
 function hasLoS(a, b) {
   if (!a || !b) return false;
-  if (Math.hypot(a.x - b.x, a.y - b.y) < 0.25) return true;
-  const pad = 0.4;
-  return !segmentHits(a.x, a.y, b.x, b.y, pillarBox(pad));
+  const from = eyeOf(a);
+  const to = eyeOf(b);
+  if (Math.hypot(from.x - to.x, from.y - to.y) < 0.3 && Math.abs(from.z - to.z) < 2) return true;
+  const map = activeMap();
+  for (const block of map.blocks) {
+    if (segmentHitsBox(from.x, from.y, from.z, to.x, to.y, to.z, blockAabb(block, 0.35))) return false;
+  }
+  const deck = map.deck;
+  if (deck) {
+    const slab = {
+      minX: deck.x0 - 0.15,
+      maxX: deck.x1 + 0.15,
+      minY: deck.y0 - 0.15,
+      maxY: deck.y1 + 0.15,
+      minZ: deck.top - deck.thick,
+      maxZ: deck.top + 0.05,
+    };
+    if (segmentHitsBox(from.x, from.y, from.z, to.x, to.y, to.z, slab)) return false;
+  }
+  return true;
 }
 
-function circleHitsPillar(x, y, r) {
-  const box = pillarBox(0);
+function hitsBlock(x, y, r, feet, block) {
+  if (block.below != null && feet >= block.below - 0.15) return false;
+  const box = blockAabb(block, 0);
   const cx = clamp(x, box.minX, box.maxX);
   const cy = clamp(y, box.minY, box.maxY);
   return Math.hypot(x - cx, y - cy) < r;
 }
 
-function clampUnit(unit, ignorePillar) {
+function solidAt(x, y, r, feet) {
+  return activeMap().blocks.some((block) => hitsBlock(x, y, r, feet, block));
+}
+
+function clampUnit(unit, ignoreBlocks) {
   unit.x = clamp(unit.x, unit.r + 1, TUNE.worldW - unit.r - 1);
   unit.y = clamp(unit.y, unit.r + 1, TUNE.worldH - unit.r - 1);
   if (match.phase === "prep") {
     if (unit.team === "ally") unit.x = Math.min(unit.x, 38);
     else unit.x = Math.max(unit.x, 62);
   }
-  if (!ignorePillar && circleHitsPillar(unit.x, unit.y, unit.r)) {
-    const box = pillarBox(0);
-    const left = Math.abs(unit.x - box.minX);
-    const right = Math.abs(box.maxX - unit.x);
-    const top = Math.abs(unit.y - box.minY);
-    const bottom = Math.abs(box.maxY - unit.y);
-    const m = Math.min(left, right, top, bottom);
-    if (m === left) unit.x = box.minX - unit.r;
-    else if (m === right) unit.x = box.maxX + unit.r;
-    else if (m === top) unit.y = box.minY - unit.r;
-    else unit.y = box.maxY + unit.r;
-    unit.x = clamp(unit.x, unit.r + 1, TUNE.worldW - unit.r - 1);
-    unit.y = clamp(unit.y, unit.r + 1, TUNE.worldH - unit.r - 1);
+  if (ignoreBlocks) return;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const block of activeMap().blocks) {
+      if (!hitsBlock(unit.x, unit.y, unit.r, unit.height, block)) continue;
+      const box = blockAabb(block, 0);
+      const left = Math.abs(unit.x - box.minX);
+      const right = Math.abs(box.maxX - unit.x);
+      const top = Math.abs(unit.y - box.minY);
+      const bottom = Math.abs(box.maxY - unit.y);
+      const m = Math.min(left, right, top, bottom);
+      if (m === left) unit.x = box.minX - unit.r;
+      else if (m === right) unit.x = box.maxX + unit.r;
+      else if (m === top) unit.y = box.minY - unit.r;
+      else unit.y = box.maxY + unit.r;
+    }
   }
+  unit.x = clamp(unit.x, unit.r + 1, TUNE.worldW - unit.r - 1);
+  unit.y = clamp(unit.y, unit.r + 1, TUNE.worldH - unit.r - 1);
 }
 
 function combat(text) {
@@ -3379,6 +3514,7 @@ function dealDamage(source, target, raw, meta) {
   target.auras = target.auras.filter((a) => a.absorb == null || a.absorb > 0);
   if (remaining > 0) {
     target.hp = Math.max(0, target.hp - remaining);
+    if (target.dummy) target.hp = Math.max(1, target.hp);
     if (target.classId === "warrior") {
       target.resource = Math.min(100, target.resource + remaining * 0.08);
     }
@@ -3741,13 +3877,13 @@ function blinkMove(unit, dx, dy, distance) {
     const hop = Math.min(step, left);
     const nx = unit.x + (dx / len) * hop;
     const ny = unit.y + (dy / len) * hop;
-    if (nx < 2 || ny < 2 || nx > TUNE.worldW - 2 || ny > TUNE.worldH - 2) break;
-    if (circleHitsPillar(nx, ny, unit.r)) break;
-    if (match.phase === "prep") break;
+    if (!canStand(unit, nx, ny)) break;
     unit.x = nx;
     unit.y = ny;
     left -= hop;
   }
+  const surface = standSurface(unit.x, unit.y, unit.height);
+  if (surface != null && unit.height < surface) unit.height = surface;
   unit.facing = Math.atan2(dy, dx);
   unit.vx = 0;
   unit.vy = 0;
@@ -3755,7 +3891,9 @@ function blinkMove(unit, dx, dy, distance) {
 
 function launchBackward(unit) {
   unit.auras = unit.auras.filter((a) => a.control !== "root");
-  const airborne = unit.height > 0.2 || unit.vz > 1;
+  const floor = standSurface(unit.x, unit.y, unit.height);
+  const ground = floor == null ? 0 : floor;
+  const airborne = unit.height > ground + 0.2 || unit.vz > 1;
   const backX = -Math.cos(unit.facing);
   const backY = -Math.sin(unit.facing);
   const push = airborne ? 28 : 22;
@@ -3763,36 +3901,40 @@ function launchBackward(unit) {
   unit.vy += backY * push;
   unit.vz = airborne ? unit.vz + 2.5 : 8.6;
   unit.knock = airborne ? 0.9 : 0.62;
-  if (unit.height < 0.05) unit.height = 0.05;
+  if (unit.height < ground + 0.05) unit.height = ground + 0.05;
 }
 
 function jumpUnit(unit) {
   if (!unit || unit.hp <= 0 || unit.dash) return;
   if (hardLocked(unit) || unit.auras.some((a) => a.control === "root" || a.ice)) return;
-  if (unit.height > 0.05 || unit.vz > 0) return;
+  const floor = standSurface(unit.x, unit.y, unit.height);
+  const ground = floor == null ? 0 : floor;
+  if (unit.height > ground + 0.08 || unit.vz > 0) return;
   unit.vz = TUNE.jumpVelocity;
-  unit.height = 0.06;
+  unit.height = ground + 0.06;
 }
 
-function projectAim(unit, x, y, range, minRange, checkLos) {
+function projectAim(unit, x, y, range, minRange, checkLos, h) {
   let dx = x - unit.x;
   let dy = y - unit.y;
   const d = Math.hypot(dx, dy) || 0.001;
   const scale = d > range ? range / d : 1;
   const px = unit.x + dx * scale;
   const py = unit.y + dy * scale;
+  const surface = standSurface(px, py, (h == null ? unit.height : h) + 0.4);
+  const point = { x: px, y: py, h: surface == null ? 0 : surface };
   const landed = Math.hypot(px - unit.x, py - unit.y);
-  if (minRange && landed < minRange - 0.05) return { x: px, y: py, ok: false, reason: "Too close" };
-  if (checkLos === false) return { x: px, y: py, ok: true, reason: null };
-  const los = hasLoS(unit, { x: px, y: py });
-  return { x: px, y: py, ok: los, reason: los ? null : "Line of sight" };
+  if (minRange && landed < minRange - 0.05) return { ...point, ok: false, reason: "Too close" };
+  if (checkLos === false) return { ...point, ok: true, reason: null };
+  const los = hasLoS(unit, { x: px, y: py, height: point.h });
+  return { ...point, ok: los, reason: los ? null : "Line of sight" };
 }
 
 function refreshAimCursor() {
   if (!match?.groundAim || !lastPointer || !window.ArenaView) return;
   const p = ArenaView.groundPoint(lastPointer.x, lastPointer.y);
   if (!p) return;
-  match.groundAim.cursor = projectAim(match.player, p.x, p.z, match.groundAim.range, match.groundAim.minRange, match.groundAim.los);
+  match.groundAim.cursor = projectAim(match.player, p.x, p.z, match.groundAim.range, match.groundAim.minRange, match.groundAim.los, p.h);
 }
 
 function confirmGroundAim() {
@@ -3810,10 +3952,10 @@ function confirmGroundAim() {
   }
   match.groundAim = null;
   if (match.netRole === "client") {
-    sendInput({ cast: aim.abilityId, aimX: cursor.x, aimY: cursor.y });
+    sendInput({ cast: aim.abilityId, aimX: cursor.x, aimY: cursor.y, aimH: cursor.h });
     return;
   }
-  match.player.aimPoint = { x: cursor.x, y: cursor.y };
+  match.player.aimPoint = { x: cursor.x, y: cursor.y, h: cursor.h };
   tryCast(match.player, aim.abilityId);
   match.player.aimPoint = null;
 }
@@ -3928,11 +4070,28 @@ function rosterFromSpec(spec) {
 
 function createMatch(spec) {
   if (window.ArenaView) ArenaView.reset();
+  const mapId = spec.map && MAPS[spec.map] ? spec.map : (spec.training ? (MAPS[trainMap] ? trainMap : "court") : rollMap());
+  spec.map = mapId;
   const roster = rosterFromSpec(spec);
   nextId = 1;
   const units = roster.map((r) => makeUnit(r.classId, r.team, r.x, r.y, r));
   assignNames(units);
   const player = units.find((u) => u.isPlayer) || units[0];
+  if (spec.training) {
+    let allyN = 0;
+    let enemyN = 0;
+    const friends = units.filter((u) => u !== player && u.team === player.team).length;
+    const foes = units.filter((u) => u.team !== player.team).length;
+    for (const unit of units) {
+      if (unit === player) continue;
+      unit.dummy = true;
+      unit.human = false;
+      const friendly = unit.team === player.team;
+      const n = friendly ? ++allyN : ++enemyN;
+      const label = friendly ? "Ally" : "Dummy";
+      unit.name = (friendly ? friends : foes) > 1 ? `${label} ${n}` : (friendly ? "Ally dummy" : "Dummy");
+    }
+  }
   const firstFoe = units.find((u) => u.team !== player.team) || units[0];
   player.targetId = firstFoe.id;
   for (const u of units) {
@@ -3958,15 +4117,27 @@ function createMatch(spec) {
     netRole: spec.netRole || "local",
     serverAuth: !!spec.serverAuth,
     winSide: null,
+    training: !!spec.training,
+    map: mapId,
   };
+  for (const unit of units) unit.height = standSurface(unit.x, unit.y, 999) || 0;
+  if (window.ArenaView) ArenaView.setMap(mapId);
+  if (spec.training) {
+    match.phase = "fight";
+    match.time = TUNE.prep;
+  }
   netSend = 0;
-  combat("Take your positions. Gates open in a moment.");
+  const mapName = MAPS[mapId].name;
+  combat(spec.training
+    ? `${mapName}. The dummies hold still. Drag the frames where you want them, then head back.`
+    : `${mapName}. Take your positions. Gates open in a moment.`);
   hoverAbility = null;
   buildMatchUi();
   if (!window.HEADLESS) {
     $("lobby").classList.add("hidden");
     $("match").classList.remove("hidden");
     $("result").classList.add("hidden");
+    if ($("leave-training")) $("leave-training").classList.toggle("hidden", !match.training);
     requestAnimationFrame(resizeCanvas);
   }
 }
@@ -4013,7 +4184,7 @@ function tickUnitTimers(unit, dt) {
 }
 
 function tickSwing(unit, dt) {
-  if (unit.hp <= 0 || unit.cast || unit.dash || hardLocked(unit) || isFeigning(unit) || isVeiled(unit)) return;
+  if (unit.dummy || unit.hp <= 0 || unit.cast || unit.dash || hardLocked(unit) || isFeigning(unit) || isVeiled(unit)) return;
   const auto = CLASSES[unit.classId].auto;
   const target = unitById(unit.targetId);
   if (!target || target.hp <= 0 || target.team === unit.team || isHidden(target)) return;
@@ -4070,7 +4241,11 @@ function tickDash(unit, dt) {
     unit.y = dash.y;
     const stunTarget = unitById(dash.stunId);
     unit.dash = null;
-    unit.height = 0;
+    if (dash.leap) unit.height = dash.floor1 || 0;
+    else {
+      const surface = standSurface(unit.x, unit.y, unit.height + 0.4);
+      if (surface != null && unit.height <= surface + 1.2) unit.height = surface;
+    }
     unit.vz = 0;
     unit.vx = 0;
     unit.vy = 0;
@@ -4116,8 +4291,9 @@ function tickDash(unit, dt) {
   unit.y += (dy / d) * step;
   dash.t -= dt;
   if (dash.leap) {
-    const p = 1 - Math.max(dash.t, 0) / (dash.dur || 0.4);
-    unit.height = Math.sin(clamp(p, 0, 1) * Math.PI) * (dash.arc || 3);
+    const p = clamp(1 - Math.max(dash.t, 0) / (dash.dur || 0.4), 0, 1);
+    const base = (dash.floor0 || 0) + ((dash.floor1 || 0) - (dash.floor0 || 0)) * p;
+    unit.height = base + Math.sin(p * Math.PI) * (dash.arc || 3);
     clampUnit(unit, true);
   } else {
     unit.facing = Math.atan2(dy, dx);
@@ -4132,7 +4308,7 @@ function tickTraps(dt) {
       trap.arm -= dt;
       continue;
     }
-    const victim = match.units.find((u) => u.hp > 0 && u.team !== trap.team && dist(u, trap) <= trap.radius);
+    const victim = match.units.find((u) => u.hp > 0 && u.team !== trap.team && Math.abs(u.height - (trap.h || 0)) < 2.4 && dist(u, trap) <= trap.radius);
     if (victim) {
       trap.life = 0;
       const owner = unitById(trap.ownerId);
@@ -4166,7 +4342,7 @@ function tickLanterns(dt) {
       continue;
     }
     const reach = lantern.beacon > 0 ? lantern.radius * 2 : lantern.radius;
-    const inside = match.units.filter((u) => u.team === lantern.team && u.hp > 0 && dist(u, lantern) <= reach);
+    const inside = match.units.filter((u) => u.team === lantern.team && u.hp > 0 && Math.abs(u.height - (lantern.h || 0)) < 2.4 && dist(u, lantern) <= reach);
     const targets = lantern.beacon > 0 && inside.length ? friendsOf(owner) : inside;
     for (const ally of targets) heal(owner, ally, 34, "Kindle", true);
   }
@@ -4233,14 +4409,24 @@ function maybeTrinket(unit) {
 
 function pathTo(from, to) {
   if (hasLoS(from, to)) return { x: to.x, y: to.y };
-  const pad = 4.2;
-  const box = pillarBox(0);
-  const corners = [
-    { x: box.minX - pad, y: box.minY - pad },
-    { x: box.maxX + pad, y: box.minY - pad },
-    { x: box.minX - pad, y: box.maxY + pad },
-    { x: box.maxX + pad, y: box.maxY + pad },
-  ];
+  const map = activeMap();
+  const feet = from.height || 0;
+  const corners = [];
+  for (const block of map.blocks) {
+    if (block.below != null && feet >= block.below - 0.2) continue;
+    const box = blockAabb(block, 0);
+    const pad = 3.8;
+    corners.push(
+      { x: box.minX - pad, y: box.minY - pad },
+      { x: box.maxX + pad, y: box.minY - pad },
+      { x: box.minX - pad, y: box.maxY + pad },
+      { x: box.maxX + pad, y: box.maxY + pad }
+    );
+  }
+  for (const ramp of map.ramps || []) {
+    const x = ramp.high === "end" ? ramp.x0 + 1.5 : ramp.x1 - 1.5;
+    corners.push({ x, y: (ramp.y0 + ramp.y1) / 2 });
+  }
   let best = null;
   let bestScore = Infinity;
   for (const corner of corners) {
@@ -4288,7 +4474,7 @@ function aiVanguard(unit) {
     const d = dist(unit, kill);
     const charged = d >= 8 && d <= 25 && hasLoS(unit, kill) && tryCast(unit, "charge", kill);
     if (!charged && d >= 8 && d <= 40 && hasLoS(unit, kill)) {
-      unit.aimPoint = { x: kill.x, y: kill.y };
+      unit.aimPoint = { x: kill.x, y: kill.y, h: kill.height };
       tryCast(unit, "heroicLeap");
       unit.aimPoint = null;
     }
@@ -4628,7 +4814,8 @@ function canStand(unit, x, y) {
     if (unit.team === "ally" && x > 38) return false;
     if (unit.team === "enemy" && x < 62) return false;
   }
-  return !circleHitsPillar(x, y, unit.r);
+  if (standSurface(x, y, unit.height) == null) return false;
+  return !solidAt(x, y, unit.r, unit.height);
 }
 
 function slide(unit, dx, dy) {
@@ -4663,7 +4850,8 @@ function updateMovement(dt) {
     if (unit.hp <= 0) continue;
     if (unit.dash) {
       if (!unit.dash.leap) {
-        unit.height = 0;
+        const surface = standSurface(unit.x, unit.y, unit.height + 0.4);
+        if (surface != null && unit.height <= surface + 1.2) unit.height = surface;
         unit.vz = 0;
       }
       unit.vx = 0;
@@ -4716,7 +4904,9 @@ function updateMovement(dt) {
     }
 
     const speed = CLASSES[unit.classId].speed * (feared ? 0.85 : speedMul(unit));
-    const grounded = unit.height <= 0.001;
+    const floorNow = standSurface(unit.x, unit.y, unit.height);
+    const groundNow = floorNow == null ? 0 : floorNow;
+    const grounded = unit.height <= groundNow + 0.08;
     if (unit.knock > 0) {
       // The launch keeps the speed it was given.
     } else if (rooted || (locked && !feared)) {
@@ -4728,10 +4918,12 @@ function updateMovement(dt) {
     }
 
     slide(unit, unit.vx * dt, unit.vy * dt);
+    const landed = standSurface(unit.x, unit.y, unit.height);
+    const rest = landed == null ? 0 : landed;
     unit.vz -= TUNE.gravity * dt;
     unit.height += unit.vz * dt;
-    if (unit.height <= 0) {
-      unit.height = 0;
+    if (unit.height <= rest) {
+      unit.height = rest;
       if (unit.vz < 0) unit.vz = 0;
     }
   }
@@ -4744,6 +4936,7 @@ function separate() {
       let dx = units[j].x - units[i].x;
       let dy = units[j].y - units[i].y;
       let d = Math.hypot(dx, dy) || 0.001;
+      if (Math.abs(units[i].height - units[j].height) > 2.4) continue;
       const min = units[i].r + units[j].r;
       if (d < min) {
         const push = (min - d) / 2;
@@ -4760,6 +4953,7 @@ function separate() {
 }
 
 function checkEnd() {
+  if (match.training) return;
   const ally = match.units.some((u) => u.team === "ally" && u.hp > 0);
   const enemy = match.units.some((u) => u.team === "enemy" && u.hp > 0);
   if (ally && enemy) return;
@@ -4823,6 +5017,7 @@ function update(dt) {
 
   for (const unit of match.units) {
     if (unit.hp <= 0) continue;
+    if (unit.dummy && unit.hp < unit.hpMax) unit.hp = Math.min(unit.hpMax, unit.hp + unit.hpMax * 0.03 * dt);
     tickUnitTimers(unit, dt);
     tickAuras(unit, dt);
     regen(unit, dt);
@@ -4834,7 +5029,7 @@ function update(dt) {
   tickLanterns(dt);
   forgetHiddenTargets();
   for (const unit of match.units) {
-    if (unit.human || unit.hp <= 0) continue;
+    if (unit.human || unit.dummy || unit.hp <= 0) continue;
     unit.aiTimer -= dt;
     if (unit.aiTimer <= 0) {
       unit.aiTimer = 0.28 + Math.random() * 0.12;
@@ -5145,16 +5340,103 @@ const CLASS_CREST = {
   druid: "rejuvenation", rogue: "stealth", warden: "kindle", binder: "lash", vow: "oath", duelist: "mark",
 };
 
+let frameLayout = {};
+let frameDrag = null;
+try {
+  frameLayout = JSON.parse(localStorage.getItem("arenaFrames") || "{}") || {};
+} catch (err) { frameLayout = {}; }
+
+function defaultFramePos(side, index, count, stage) {
+  const w = 196;
+  const h = 72;
+  const gap = 8;
+  if (side === "enemy") {
+    const total = count * w + (count - 1) * gap;
+    return { x: Math.max(8, (stage.clientWidth - total) / 2) + index * (w + gap), y: 14 };
+  }
+  return { x: 14, y: stage.clientHeight - 132 - (index + 1) * h - index * gap };
+}
+
+function layoutFrames() {
+  if (frameDrag || !match || window.HEADLESS) return;
+  const stage = $("stage");
+  if (!stage || stage.clientWidth < 20) return;
+  const groups = { ally: [], enemy: [] };
+  for (const unit of match.units) {
+    if (!unit.el) return;
+    groups[unit.team === match.player.team ? "ally" : "enemy"].push(unit);
+  }
+  for (const side of ["ally", "enemy"]) {
+    groups[side].forEach((unit, index) => {
+      const saved = frameLayout[`${side}-${index}`];
+      const pos = saved || defaultFramePos(side, index, groups[side].length, stage);
+      const maxX = Math.max(0, stage.clientWidth - unit.el.offsetWidth);
+      const maxY = Math.max(0, stage.clientHeight - unit.el.offsetHeight);
+      unit.el.style.left = `${clamp(pos.x, 0, maxX)}px`;
+      unit.el.style.top = `${clamp(pos.y, 0, maxY)}px`;
+    });
+  }
+}
+
+function bindFrameDrag(el, slot, unitId) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const parent = $("unit-frames").getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    frameDrag = {
+      el,
+      slot,
+      x: e.clientX,
+      y: e.clientY,
+      left: rect.left - parent.left,
+      top: rect.top - parent.top,
+      moved: false,
+    };
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!frameDrag || frameDrag.el !== el) return;
+    const dx = e.clientX - frameDrag.x;
+    const dy = e.clientY - frameDrag.y;
+    if (Math.hypot(dx, dy) < 5) return;
+    frameDrag.moved = true;
+    el.classList.add("dragging");
+    const parent = $("unit-frames");
+    const x = clamp(frameDrag.left + dx, 0, Math.max(0, parent.clientWidth - el.offsetWidth));
+    const y = clamp(frameDrag.top + dy, 0, Math.max(0, parent.clientHeight - el.offsetHeight));
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+  });
+  el.addEventListener("pointerup", () => {
+    if (!frameDrag || frameDrag.el !== el) return;
+    const drag = frameDrag;
+    frameDrag = null;
+    el.classList.remove("dragging");
+    if (drag.moved) {
+      frameLayout[slot] = { x: parseFloat(el.style.left), y: parseFloat(el.style.top) };
+      try { localStorage.setItem("arenaFrames", JSON.stringify(frameLayout)); } catch (err) { /* ignore */ }
+      return;
+    }
+    selectTarget(unitId);
+  });
+  el.addEventListener("pointercancel", () => {
+    if (!frameDrag || frameDrag.el !== el) return;
+    frameDrag = null;
+    el.classList.remove("dragging");
+  });
+}
+
 function buildMatchUi() {
   if (window.HEADLESS) return;
-  const enemyWrap = $("enemy-frames");
-  const partyWrap = $("party-frames");
-  enemyWrap.innerHTML = "";
-  partyWrap.innerHTML = "";
+  const wrap = $("unit-frames");
+  wrap.innerHTML = "";
+  const counts = { ally: 0, enemy: 0 };
   for (const unit of match.units) {
+    const side = unit.team === match.player.team ? "ally" : "enemy";
+    const slot = `${side}-${counts[side]++}`;
     const el = document.createElement("button");
     el.type = "button";
-    el.className = `frame ${unit.team}`;
+    el.className = `frame ${unit.team}${unit === match.player ? " player" : ""}`;
     el.dataset.uid = String(unit.id);
     el.innerHTML = `
       <div class="frame-head"><b class="fname"></b><span class="sub"></span></div>
@@ -5162,8 +5444,8 @@ function buildMatchUi() {
       <div class="meter resource"><div class="fill"></div><span></span></div>
       <div class="meter cast hidden"><div class="fill"></div><span></span></div>
       <div class="auras"></div>`;
-    el.addEventListener("click", () => selectTarget(unit.id));
-    (unit.team === match.player.team ? partyWrap : enemyWrap).appendChild(el);
+    bindFrameDrag(el, slot, unit.id);
+    wrap.appendChild(el);
     unit.el = el;
   }
   const bar = $("abilities");
@@ -5241,8 +5523,11 @@ function updateHud() {
     $("clock").textContent = fmtTime(fightSeconds());
   }
   $("damp").textContent = `Dampening ${Math.round(currentDamp() * 100)}%`;
-  $("phase-label").textContent = match.phase === "prep" ? "Gates closed" : match.phase === "fight" ? "In combat" : match.win ? "Victory" : "Defeat";
-  if (match.phase === "fight" && match.time < TUNE.prep + 0.8) {
+  const mapName = MAPS[match.map] ? MAPS[match.map].name : "Arena";
+  $("phase-label").textContent = match.training
+    ? `${mapName} · Training`
+    : match.phase === "end" ? (match.win ? "Victory" : "Defeat") : mapName;
+  if (!match.training && match.phase === "fight" && match.time < TUNE.prep + 0.8) {
     announce.textContent = "FIGHT";
   } else if (match.phase !== "prep") {
     announce.textContent = "";
@@ -5318,20 +5603,26 @@ function updateHud() {
     btn.classList.toggle("unusable", !usable && match.phase === "fight");
   }
 
-  $("log").innerHTML = match.logs.map((line) => `<div><span class="time">${fmtTime(line.t)}</span>${line.text}</div>`).join("");
+  $("log").innerHTML = match.logs.slice(-6).map((line) => `<div><span class="time">${fmtTime(line.t)}</span>${line.text}</div>`).join("");
 }
 
 function resizeCanvas() {
   if (window.ArenaView) ArenaView.resize();
+  layoutFrames();
 }
 
 function showResult() {
   if (window.HEADLESS) return;
   const rows = match.units.map((u) => `<tr><td>${u.name}</td><td>${CLASSES[u.classId].name}</td><td>${Math.round(u.stats.damage)}</td><td>${Math.round(u.stats.healing)}</td><td>${u.hp > 0 ? "Up" : "Dead"}</td></tr>`).join("");
   $("result").innerHTML = `
-    <div class="result-card">
-      <h2>${match.win ? "Victory" : "Defeat"}</h2>
-      <p>${match.win ? "Your team is still standing." : "Your team is down."} ${fmtTime(fightSeconds())} · dampening ${Math.round(currentDamp() * 100)}%.</p>
+    <div class="result-card ${match.win ? "win" : "loss"}">
+      <div class="result-head">
+        <img src="assets/arena-emblem.jpg" alt="">
+        <div>
+          <h2>${match.win ? "Victory" : "Defeat"}</h2>
+          <p>${match.win ? "Your team is still standing." : "Your team is down."} ${MAPS[match.map] ? MAPS[match.map].name : "Arena"} · ${fmtTime(fightSeconds())} · dampening ${Math.round(currentDamp() * 100)}%.</p>
+        </div>
+      </div>
       <table>
         <thead><tr><th>Fighter</th><th>Class</th><th>Damage</th><th>Healing</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
@@ -5431,6 +5722,7 @@ function sendInput(extra) {
       abilityId: extra.cast,
       aimX: extra.aimX == null ? null : extra.aimX,
       aimY: extra.aimY == null ? null : extra.aimY,
+      aimH: extra.aimH == null ? null : extra.aimH,
     };
   }
   const payload = {
@@ -5512,7 +5804,9 @@ function applyRemote(unit) {
   }
   if (ctl.cast && ctl.cast.seq > unit.appliedCast) {
     unit.appliedCast = ctl.cast.seq;
-    if (ctl.cast.aimX != null && ctl.cast.aimY != null) unit.aimPoint = { x: ctl.cast.aimX, y: ctl.cast.aimY };
+    if (ctl.cast.aimX != null && ctl.cast.aimY != null) {
+      unit.aimPoint = { x: ctl.cast.aimX, y: ctl.cast.aimY, h: ctl.cast.aimH == null ? unit.height : ctl.cast.aimH };
+    }
     tryCast(unit, ctl.cast.abilityId);
     unit.aimPoint = null;
   }
@@ -5550,10 +5844,11 @@ function packMatch() {
   return {
     time: match.time,
     phase: match.phase,
+    map: match.map,
     winSide: match.winSide || null,
     logs: match.logs.map((line) => ({ t: line.t, text: line.text })),
-    traps: match.traps.map((t) => ({ ownerId: t.ownerId, team: t.team, x: t.x, y: t.y, life: t.life, arm: t.arm, radius: t.radius })),
-    lanterns: (match.lanterns || []).map((l) => ({ ownerId: l.ownerId, team: l.team, x: l.x, y: l.y, life: l.life, radius: l.radius, tick: l.tick, beacon: l.beacon })),
+    traps: match.traps.map((t) => ({ ownerId: t.ownerId, team: t.team, x: t.x, y: t.y, h: t.h || 0, life: t.life, arm: t.arm, radius: t.radius })),
+    lanterns: (match.lanterns || []).map((l) => ({ ownerId: l.ownerId, team: l.team, x: l.x, y: l.y, h: l.h || 0, life: l.life, radius: l.radius, tick: l.tick, beacon: l.beacon })),
     fx: (match.fx || []).map((effect) => ({
       id: effect.id, kind: effect.kind, color: effect.color, x: effect.x, y: effect.y, h: effect.h,
       x2: effect.x2, y2: effect.y2, h2: effect.h2, life: effect.life, max: effect.max, size: effect.size, round: !!effect.round,
@@ -5601,6 +5896,10 @@ function applySnap(state) {
   const ended = match.phase !== "end" && state.phase === "end";
   match.time = state.time;
   match.phase = state.phase;
+  if (state.map && MAPS[state.map] && state.map !== match.map) {
+    match.map = state.map;
+    if (window.ArenaView) ArenaView.setMap(state.map);
+  }
   match.winSide = state.winSide;
   if (state.winSide) match.win = match.player.team === state.winSide;
   match.logs = state.logs || [];
@@ -5642,6 +5941,7 @@ function returnToLobby() {
   $("match").classList.add("hidden");
   $("lobby").classList.remove("hidden");
   $("result").classList.add("hidden");
+  if ($("leave-training")) $("leave-training").classList.add("hidden");
   renderLobby();
 }
 
@@ -5656,9 +5956,10 @@ function requestRematch() {
     if (window.ArenaNet) ArenaNet.send({ kind: "rematch" });
     return;
   }
+  if (!match.setup.training) delete match.setup.map;
   if (match.netRole === "host") {
-    if (window.ArenaNet) ArenaNet.send({ kind: "start", roster: match.setup.roster });
     createMatch(match.setup);
+    if (window.ArenaNet) ArenaNet.send({ kind: "start", roster: match.setup.roster, map: match.map });
     return;
   }
   createMatch(match.setup);
@@ -5818,7 +6119,7 @@ function onNetMessage(msg) {
   if (data.kind === "start" && data.roster) {
     if (data.server) {
       queueing = false;
-      createMatch({ roster: data.roster, netRole: "client", serverAuth: true });
+      createMatch({ roster: data.roster, netRole: "client", serverAuth: true, map: data.map || "court" });
       return;
     }
     const seated = data.roster.some((r) => r.peerId && window.ArenaNet && r.peerId === ArenaNet.id);
@@ -5827,7 +6128,7 @@ function onNetMessage(msg) {
       renderLobby();
       return;
     }
-    createMatch({ roster: data.roster, netRole: iAmHost() ? "host" : "client" });
+    createMatch({ roster: data.roster, netRole: iAmHost() ? "host" : "client", map: data.map || "court" });
     return;
   }
   if (data.kind === "snap") {
@@ -5935,18 +6236,18 @@ function startOnline() {
     peerId: slot.kind === "human" ? slot.peerId : null,
     name: slot.kind === "human" ? slot.name : null,
   }));
-  ArenaNet.send({ kind: "start", roster });
-  createMatch({ roster, netRole: "host" });
+  const map = rollMap();
+  ArenaNet.send({ kind: "start", roster, map });
+  createMatch({ roster, netRole: "host", map });
 }
 
 function renderLobby() {
   const root = $("lobby");
   const card = (id, selected) => {
     const cls = CLASSES[id];
-    const spells = cls.abilities.map((a) => `<li>${esc(a.name)}<span>${esc(bindFor(a).toUpperCase())}</span></li>`).join("");
     return `<button type="button" class="class-card ${selected ? "selected" : ""}" data-class="${id}" style="--accent:${cls.color}">
-      <header><img class="crest" alt="" src="${spellIcon(CLASS_CREST[id] || "charge")}"><div><h2>${esc(cls.name)}</h2><span class="role">${esc(cls.role)} · ${esc(cls.resource.name)}</span></div></header>
-      <ul>${spells}</ul>
+      <img class="crest" alt="" src="${spellIcon(CLASS_CREST[id] || "charge")}">
+      <span class="class-meta"><b>${esc(cls.name)}</b><span class="role">${esc(cls.role)}</span></span>
     </button>`;
   };
   const chips = (group, current) => Object.keys(CLASSES).map((id) => {
@@ -5959,11 +6260,7 @@ function renderLobby() {
   if (playMode === "local") {
     const partners = setup.allies.map((id, i) => `<div class="section-label">Blue partner ${setup.size > 2 ? i + 1 : ""}</div><div class="team-row">${chips(`ally-${i}`, id)}</div>`).join("");
     const foes = setup.enemies.map((id, i) => `<div class="section-label">Red fighter ${setup.size > 1 ? i + 1 : ""}</div><div class="team-row">${chips(`enemy-${i}`, id)}</div>`).join("");
-    teams = `${partners}${foes}
-      <div class="lobby-actions">
-        <button class="start-btn" id="start" type="button">Enter arena</button>
-        <button class="text-btn" id="random" type="button">Random teams</button>
-      </div>`;
+    teams = `${partners}${foes}`;
   } else if (!room) {
     teams = `
       <div class="lobby-field">
@@ -6010,33 +6307,58 @@ function renderLobby() {
   }
 
   root.innerHTML = `
-    <div class="hero">
-      <h1>Arena</h1>
-      <p>A 3D arena for 1v1, 2v2, and 3v3. Find match puts you in a queue and the server runs the fight. You can still host a private room. The pillar blocks line of sight and movement. Right-drag orbits the camera. Space jumps. Spells are 1–4, E, Q, and R. Channelers also have Inferno on C. Hexers stack curses. Grovekeepers keep heals over time rolling. Shades open from the veil. Wardens heal from a lantern. Binders yank with a chain. Vows share healing. Duelists fight one marked target. Ground spells are aimed with a circle. Healing falls off as dampening rises.</p>
-    </div>
-    <div class="section-label">Match</div>
-    <div class="choice-row">
-      <button type="button" class="text-btn ${playMode === "local" ? "selected" : ""}" data-mode="local">Local</button>
-      <button type="button" class="text-btn ${playMode === "online" ? "selected" : ""}" data-mode="online">Online</button>
-      ${room ? "" : `${sizeBtn(1, "1v1")}${sizeBtn(2, "2v2")}${sizeBtn(3, "3v3")}`}
-    </div>
-    <div class="section-label">Your class</div>
-    <div class="class-grid" id="pick-player">
-      ${Object.keys(CLASSES).map((id) => card(id, setup.player === id)).join("")}
-    </div>
-    <div class="section-label">Keybinds</div>
-    <p class="net-status">${esc(bindPrompt(picked))}</p>
-    <div class="section-label">Targeting</div>
-    <div class="bind-grid">
-      ${TARGET_ACTIONS.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(codeLabel(targetCode(a.id)))}</b></button>`).join("")}
-    </div>
-    <div class="section-label">Spells</div>
-    <div class="bind-grid">
-      ${picked.abilities.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(bindFor(a).toUpperCase())}</b></button>`).join("")}
-    </div>
-    <div class="lobby-actions"><button type="button" class="text-btn" id="reset-binds">Reset keys</button></div>
-    ${teams}
-    <div class="dossier" id="dossier"></div>`;
+    <div class="menu">
+      <header class="menu-banner">
+        <img class="banner" src="assets/arena-banner.jpg" alt="">
+        <div class="menu-title">
+          <img class="menu-emblem" src="assets/arena-emblem.jpg" alt="">
+          <div>
+            <h1>Arena</h1>
+            <p>Pick a class, set your keys, then enter. Training lets you place the frames first.</p>
+          </div>
+        </div>
+      </header>
+      <div class="play-bar">
+        <div class="choice-row">
+          <button type="button" class="text-btn ${playMode === "local" ? "selected" : ""}" data-mode="local">Local</button>
+          <button type="button" class="text-btn ${playMode === "online" ? "selected" : ""}" data-mode="online">Online</button>
+          ${room ? "" : `${sizeBtn(1, "1v1")}${sizeBtn(2, "2v2")}${sizeBtn(3, "3v3")}<button type="button" class="text-btn" id="train">Training arena</button>`}
+        </div>
+        ${playMode === "local" && !room ? `<div class="map-pick">
+          <span class="section-label">Training map</span>
+          ${MAP_ORDER.map((id) => `<button type="button" class="text-btn ${trainMap === id ? "selected" : ""}" data-map="${id}">${MAPS[id].name}</button>`).join("")}
+          <span class="map-note">Real matches roll a map. Training uses this one.</span>
+        </div>` : ""}
+        ${playMode === "local" && !room ? `<div class="lobby-actions">
+          <button class="start-btn" id="start" type="button">Enter arena</button>
+          <button class="text-btn" id="random" type="button">Random teams</button>
+        </div>` : ""}
+      </div>
+      <div class="menu-layout">
+        <section class="menu-panel">
+          <div class="section-label">Your class</div>
+          <div class="class-grid" id="pick-player">
+            ${Object.keys(CLASSES).map((id) => card(id, setup.player === id)).join("")}
+          </div>
+          <div class="dossier" id="dossier"></div>
+        </section>
+        <aside class="menu-panel">
+          <div class="section-label">${playMode === "local" && !room ? "Teams" : room ? "Room" : "Online"}</div>
+          ${teams || `<p class="net-status">Pick a team size, then enter.</p>`}
+          <div class="section-label">Keybinds</div>
+          <p class="net-status">${esc(bindPrompt(picked))}</p>
+          <div class="section-label">Targeting</div>
+          <div class="bind-grid">
+            ${TARGET_ACTIONS.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(codeLabel(targetCode(a.id)))}</b></button>`).join("")}
+          </div>
+          <div class="section-label">Spells</div>
+          <div class="bind-grid">
+            ${picked.abilities.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(bindFor(a).toUpperCase())}</b></button>`).join("")}
+          </div>
+          <div class="lobby-actions"><button type="button" class="text-btn" id="reset-binds">Reset keys</button></div>
+        </aside>
+      </div>
+    </div>`;
 
   renderDossier();
   root.querySelectorAll("[data-mode]").forEach((btn) => {
@@ -6049,6 +6371,13 @@ function renderLobby() {
     btn.addEventListener("click", () => {
       setup.size = Number(btn.dataset.size);
       fitTeams();
+      renderLobby();
+    });
+  });
+  root.querySelectorAll("[data-map]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!MAPS[btn.dataset.map]) return;
+      trainMap = btn.dataset.map;
       renderLobby();
     });
   });
@@ -6086,6 +6415,20 @@ function renderLobby() {
         allies: setup.allies.slice(),
         enemies: setup.enemies.slice(),
         netRole: "local",
+      });
+    });
+  }
+  if ($("train")) {
+    $("train").addEventListener("click", () => {
+      fitTeams();
+      createMatch({
+        size: setup.size,
+        player: setup.player,
+        allies: setup.allies.slice(),
+        enemies: setup.enemies.slice(),
+        netRole: "local",
+        training: true,
+        map: trainMap,
       });
     });
   }
@@ -6254,7 +6597,7 @@ function canvasClick(e) {
   if (match.groundAim) {
     lastPointer = { x: e.clientX, y: e.clientY };
     const point = ArenaView.groundPoint(e.clientX, e.clientY);
-    if (point) match.groundAim.cursor = projectAim(match.player, point.x, point.z, match.groundAim.range, match.groundAim.minRange, match.groundAim.los);
+    if (point) match.groundAim.cursor = projectAim(match.player, point.x, point.z, match.groundAim.range, match.groundAim.minRange, match.groundAim.los, point.h);
     confirmGroundAim();
     return;
   }
@@ -6298,6 +6641,7 @@ if (!window.HEADLESS) {
     lastPointer = { x: e.clientX, y: e.clientY };
   });
   window.addEventListener("resize", resizeCanvas);
+  if ($("leave-training")) $("leave-training").addEventListener("click", requestBack);
   document.addEventListener("mousemove", moveTip);
   window.addEventListener("load", () => {
     if (window.ArenaNet) ArenaNet.on(onNetMessage);
@@ -6313,10 +6657,18 @@ if (!window.HEADLESS) {
 window.Arena = {
   TUNE,
   CLASSES,
+  MAPS,
   PILLAR,
   get match() { return match; },
   getHover() { return hoverAbility; },
   spellLook(id) { return SPELL_LOOK[id] || null; },
+  floorAt(x, y, feet) {
+    const surface = standSurface(x, y, feet == null ? 0 : feet);
+    return surface == null ? 0 : surface;
+  },
+  underDeck,
+  hasLoS,
+  tallBoxes,
   createMatch,
   tryCast,
   step: update,

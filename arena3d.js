@@ -8,19 +8,10 @@
 let yaw = Math.PI;
 let distance = 28;
 let gfx = null;
+let pendingMap = "court";
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
-
-function pillarAabb() {
-  const pillar = window.Arena.PILLAR;
-  return {
-    minX: pillar.x - pillar.hw,
-    maxX: pillar.x + pillar.hw,
-    minZ: pillar.y - pillar.hh,
-    maxZ: pillar.y + pillar.hh,
-  };
-}
 
 function makeLabelSprite() {
   const canvas = document.createElement("canvas");
@@ -259,16 +250,17 @@ function updateFighter(group, unit, match) {
   const cyclone = !dead && unit.auras.some((a) => a.id === "cyclone");
   const lift = dead ? 0 : (unit.height || 0);
   const feign = !dead && unit.auras.some((a) => a.feign);
+  const floor = window.Arena.floorAt ? Arena.floorAt(unit.x, unit.y, lift) : 0;
   const moved = group.userData.px != null && Math.hypot(unit.x - group.userData.px, unit.y - group.userData.pz) > 0.02;
   group.userData.px = unit.x;
   group.userData.pz = unit.y;
-  const bob = !dead && !feign && moved && lift < 0.05 ? Math.abs(Math.sin(match.time * 11)) * 0.06 : 0;
+  const bob = !dead && !feign && moved && Math.abs(lift - floor) < 0.08 ? Math.abs(Math.sin(match.time * 11)) * 0.06 : 0;
   group.position.set(unit.x, (dead ? 0.35 : 0) + lift + bob + (cyclone ? 1.35 : 0), unit.y);
   group.rotation.set(0, cyclone ? match.time * 8 : -unit.facing, dead ? 1.25 : 0);
   group.scale.set(sheep ? 1.2 : feign ? 1.15 : 1, dead ? 1 : sheep ? 0.7 : feign ? 0.38 : 1, sheep ? 1.2 : feign ? 1.15 : 1);
-  parts.blob.position.y = 0.02 - lift - bob;
-  parts.ring.position.y = 0.05 - lift - bob;
-  parts.select.position.y = 0.07 - lift - bob;
+  parts.blob.position.y = floor + 0.02 - group.position.y;
+  parts.ring.position.y = floor + 0.05 - group.position.y;
+  parts.select.position.y = floor + 0.07 - group.position.y;
 
   const swing = !dead && moved ? Math.sin(match.time * 11) * 0.55 : 0;
   parts.legs[0].rotation.z = swing;
@@ -351,7 +343,7 @@ function paintTexture(width, height, draw) {
   return tex;
 }
 
-function groundTexture() {
+function groundTexture(kind) {
   return paintTexture(1024, 614, (ctx, w, h) => {
     ctx.fillStyle = "#b08968";
     ctx.fillRect(0, 0, w, h);
@@ -375,12 +367,34 @@ function groundTexture() {
     ctx.strokeRect(28, 28, w - 56, h - 56);
     ctx.lineWidth = 3;
     ctx.strokeRect(48, 48, w - 96, h - 96);
-    ctx.beginPath();
-    ctx.arc(w / 2, h / 2, 78, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(w / 2, h / 2, 18, 0, Math.PI * 2);
-    ctx.stroke();
+    if (kind === "bridge") {
+      const y0 = (25.6 / 60) * h;
+      const y1 = (34.4 / 60) * h;
+      ctx.fillStyle = "rgba(42, 26, 16, 0.34)";
+      ctx.fillRect(70, y0, w - 140, y1 - y0);
+    } else if (kind === "pillars") {
+      ctx.strokeRect(w * 0.28, h * 0.22, w * 0.44, h * 0.56);
+    } else {
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, 78, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, 18, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  });
+}
+
+function plankTexture() {
+  return paintTexture(256, 64, (ctx) => {
+    ctx.fillStyle = "#6a4630";
+    ctx.fillRect(0, 0, 256, 64);
+    for (let x = 0; x < 256; x += 28) {
+      ctx.fillStyle = `rgba(0,0,0,${0.06 + Math.random() * 0.1})`;
+      ctx.fillRect(x, 0, 26, 64);
+      ctx.strokeStyle = "rgba(32, 18, 10, 0.7)";
+      ctx.strokeRect(x + 0.5, 0.5, 27, 63);
+    }
   });
 }
 
@@ -451,7 +465,7 @@ function buildScene() {
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 60),
-    new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 0.92, metalness: 0.02 })
+    new THREE.MeshStandardMaterial({ map: groundTexture("court"), roughness: 0.92, metalness: 0.02 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(50, 0, 30);
@@ -460,7 +474,6 @@ function buildScene() {
 
   const stone = new THREE.MeshStandardMaterial({ map: stoneTexture("#6a5a4c"), roughness: 0.88, metalness: 0.04 });
   const trim = new THREE.MeshStandardMaterial({ map: stoneTexture("#a68455"), roughness: 0.62, metalness: 0.18 });
-  const pillarMat = new THREE.MeshStandardMaterial({ map: stoneTexture("#7d6c5e"), roughness: 0.8, metalness: 0.06 });
   const addBox = (x, y, z, w, h, d, mat, shadow) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.set(x, y, z);
@@ -481,39 +494,6 @@ function buildScene() {
     addBox(x, 3.4, z, 2.2, 6.8, 2.2, trim, true);
   }
 
-  const box = pillarAabb();
-  const pillar = addBox(
-    (box.minX + box.maxX) / 2,
-    6,
-    (box.minZ + box.maxZ) / 2,
-    box.maxX - box.minX,
-    12,
-    box.maxZ - box.minZ,
-    pillarMat,
-    true
-  );
-  const cap = addBox(
-    pillar.position.x,
-    12.15,
-    pillar.position.z,
-    box.maxX - box.minX + 0.4,
-    0.35,
-    box.maxZ - box.minZ + 0.4,
-    trim,
-    true
-  );
-  void cap;
-  const column = new THREE.CylinderGeometry(0.55, 0.7, 11.2, 8);
-  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-    const col = new THREE.Mesh(column, trim);
-    col.position.set(
-      pillar.position.x + dx * ((box.maxX - box.minX) / 2 - 0.35),
-      5.6,
-      pillar.position.z + dz * ((box.maxZ - box.minZ) / 2 - 0.35)
-    );
-    col.castShadow = true;
-    scene.add(col);
-  }
   for (const [x, z] of [[0, 0], [100, 0], [0, 60], [100, 60]]) {
     const flame = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff8a3a }));
     flame.position.set(x, 7.3, z);
@@ -586,12 +566,158 @@ function buildScene() {
     aimRing,
     targetLine,
     dashLine,
+    ground,
+    mapRoot: null,
+    walkables: [],
     traps: [],
     lanterns: [],
     floaters: [],
     camPos: null,
   };
+  dressMap(pendingMap);
   resize();
+}
+
+function disposeGroup(group) {
+  if (!group) return;
+  const seen = new Set();
+  group.traverse((obj) => {
+    if (obj.geometry && !seen.has(obj.geometry)) {
+      seen.add(obj.geometry);
+      obj.geometry.dispose();
+    }
+    if (!obj.material) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of mats) {
+      if (seen.has(mat)) continue;
+      seen.add(mat);
+      if (mat.map && !seen.has(mat.map)) {
+        seen.add(mat.map);
+        mat.map.dispose();
+      }
+      mat.dispose();
+    }
+  });
+  gfx.scene.remove(group);
+}
+
+function makeWedge(lowX, highX, z0, z1, h) {
+  const verts = new Float32Array([
+    lowX, 0, z0,
+    lowX, 0, z1,
+    highX, 0, z0,
+    highX, 0, z1,
+    highX, h, z0,
+    highX, h, z1,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geo.setIndex([
+    0, 2, 3, 0, 3, 1,
+    0, 1, 5, 0, 5, 4,
+    2, 4, 5, 2, 5, 3,
+    0, 4, 2,
+    1, 3, 5,
+  ]);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function dressMap(mapId) {
+  if (!gfx) return;
+  const maps = window.Arena && Arena.MAPS;
+  const map = maps && maps[mapId] ? maps[mapId] : { id: "court", blocks: [{ x: 50, y: 30, hw: 5.2, hh: 7.4 }] };
+  disposeGroup(gfx.mapRoot);
+  const root = new THREE.Group();
+  gfx.scene.add(root);
+  gfx.mapRoot = root;
+  gfx.walkables = [];
+  if (gfx.ground && gfx.ground.material) {
+    const mat = gfx.ground.material;
+    if (mat.map) mat.map.dispose();
+    mat.map = groundTexture(map.id || "court");
+    mat.needsUpdate = true;
+  }
+
+  const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTexture("#7d6c5e"), roughness: 0.8, metalness: 0.06 });
+  const trimMat = new THREE.MeshStandardMaterial({ map: stoneTexture("#c4a36a"), roughness: 0.55, metalness: 0.22 });
+  const add = (x, y, z, w, h, d, mat) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    root.add(mesh);
+    return mesh;
+  };
+
+  if (map.deck) {
+    const deck = map.deck;
+    const dw = deck.x1 - deck.x0;
+    const dd = deck.y1 - deck.y0;
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(dw, deck.thick, dd),
+      new THREE.MeshStandardMaterial({ map: plankTexture(), roughness: 0.74, metalness: 0.05 })
+    );
+    slab.position.set((deck.x0 + deck.x1) / 2, deck.top - deck.thick / 2, (deck.y0 + deck.y1) / 2);
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    slab.userData.kind = "deck";
+    root.add(slab);
+    gfx.walkables.push(slab);
+    const under = deck.top - deck.thick;
+    for (const edge of [deck.y0 + 0.16, deck.y1 - 0.16]) {
+      add((deck.x0 + deck.x1) / 2, deck.top + 0.42, edge, dw, 0.84, 0.28, trimMat);
+    }
+    for (let x = deck.x0 + 3; x <= deck.x1 - 2; x += 8) {
+      add(x, deck.top + 0.7, deck.y0 + 0.16, 0.32, 1.4, 0.32, trimMat);
+      add(x, deck.top + 0.7, deck.y1 - 0.16, 0.32, 1.4, 0.32, trimMat);
+    }
+    for (const block of map.blocks) {
+      add(block.x, under / 2, block.y, block.hw * 2, under, block.hh * 2, stoneMat);
+      add(block.x, under - 0.16, block.y, block.hw * 2 + 0.55, 0.32, block.hh * 2 + 0.55, trimMat);
+    }
+    const planks = new THREE.MeshStandardMaterial({ map: plankTexture(), roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide });
+    for (const ramp of map.ramps || []) {
+      const lowX = ramp.high === "end" ? ramp.x0 : ramp.x1;
+      const highX = ramp.high === "end" ? ramp.x1 : ramp.x0;
+      const mesh = new THREE.Mesh(makeWedge(lowX, highX, ramp.y0, ramp.y1, ramp.top), planks);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.kind = "ramp";
+      root.add(mesh);
+      gfx.walkables.push(mesh);
+    }
+    const shade = new THREE.Mesh(
+      new THREE.PlaneGeometry(dw - 1.2, dd - 1.2),
+      new THREE.MeshBasicMaterial({ color: 0x2a1810, transparent: true, opacity: 0.42, depthWrite: false })
+    );
+    shade.rotation.x = -Math.PI / 2;
+    shade.position.set((deck.x0 + deck.x1) / 2, 0.05, (deck.y0 + deck.y1) / 2);
+    root.add(shade);
+    return;
+  }
+
+  const tall = map.blocks.length < 2;
+  for (const block of map.blocks) {
+    const w = block.hw * 2;
+    const d = block.hh * 2;
+    const h = tall ? 12 : 9.4;
+    add(block.x, h / 2, block.y, w, h, d, stoneMat);
+    add(block.x, h + 0.18, block.y, w + (tall ? 0.4 : 0.7), 0.36, d + (tall ? 0.4 : 0.7), trimMat);
+    if (!tall) continue;
+    const column = new THREE.CylinderGeometry(0.55, 0.7, 11.2, 8);
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const col = new THREE.Mesh(column, trimMat);
+      col.position.set(block.x + dx * (w / 2 - 0.35), 5.6, block.y + dz * (d / 2 - 0.35));
+      col.castShadow = true;
+      root.add(col);
+    }
+  }
+}
+
+function setMap(mapId) {
+  pendingMap = mapId && window.Arena && Arena.MAPS && Arena.MAPS[mapId] ? mapId : "court";
+  if (gfx) dressMap(pendingMap);
 }
 
 function resize() {
@@ -606,16 +732,17 @@ function resize() {
 }
 
 function cameraGoal(focus) {
-  const box = pillarAabb();
+  const boxes = window.Arena.tallBoxes ? Arena.tallBoxes() : [];
+  const lift = window.Arena.floorAt ? Arena.floorAt(focus.x, focus.y, focus.height || 0) : 0;
   let d = distance;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 14; i++) {
     const x = focus.x + Math.cos(yaw) * d;
     const z = focus.y + Math.sin(yaw) * d;
-    const inside = x > box.minX - 1.2 && x < box.maxX + 1.2 && z > box.minZ - 1.2 && z < box.maxZ + 1.2;
-    if (!inside) return new THREE.Vector3(x, 12.5, z);
+    const inside = boxes.some((box) => x > box.minX - 1.2 && x < box.maxX + 1.2 && z > box.minY - 1.2 && z < box.maxY + 1.2);
+    if (!inside) return new THREE.Vector3(x, 12.5 + lift * 0.45, z);
     d *= 0.78;
   }
-  return new THREE.Vector3(focus.x, 20, focus.y + 10);
+  return new THREE.Vector3(focus.x, 20 + lift * 0.45, focus.y + 10);
 }
 
 function syncTraps(match) {
@@ -636,7 +763,7 @@ function syncTraps(match) {
   }
   match.traps.forEach((trap, i) => {
     const mesh = gfx.traps[i];
-    mesh.position.set(trap.x, 0.1, trap.y);
+    mesh.position.set(trap.x, (trap.h || 0) + 0.1, trap.y);
     mesh.scale.setScalar(trap.radius);
     mesh.material.color.set(trap.arm > 0 ? 0xd0d0d0 : 0x9eecff);
     mesh.material.opacity = trap.arm > 0 ? 0.45 : 0.95;
@@ -681,7 +808,7 @@ function syncLanterns(match) {
   list.forEach((lantern, i) => {
     const mesh = gfx.lanterns[i];
     const reach = lantern.beacon > 0 ? lantern.radius * 2 : lantern.radius;
-    mesh.position.set(lantern.x, 0, lantern.y);
+    mesh.position.set(lantern.x, lantern.h || 0, lantern.y);
     mesh.userData.ring.scale.setScalar(reach);
     mesh.userData.orb.material.color.set(lantern.beacon > 0 ? 0xfff6c8 : 0xd8fff6);
     mesh.userData.orb.position.y = 1.3 + Math.sin(match.time * 4) * 0.08;
@@ -728,10 +855,11 @@ function syncFloaters(match) {
   });
 }
 
-function placeLine(line, ax, az, bx, bz) {
+function placeLine(line, ax, az, bx, bz, y) {
   const attr = line.geometry.attributes.position;
-  attr.setXYZ(0, ax, 0.12, az);
-  attr.setXYZ(1, bx, 0.12, bz);
+  const h = y == null ? 0.12 : y;
+  attr.setXYZ(0, ax, h, az);
+  attr.setXYZ(1, bx, h, bz);
   attr.needsUpdate = true;
   if (line.computeLineDistances) line.computeLineDistances();
 }
@@ -740,13 +868,14 @@ function render(match, dt) {
   if (!gfx) buildScene();
   if (!match) return;
 
-  const focus = match.player.hp > 0 ? match.player : { x: 50, y: 30 };
+  const focus = match.player.hp > 0 ? match.player : { x: 50, y: 30, height: 0 };
   const goal = cameraGoal(focus);
   if (!gfx.camPos) gfx.camPos = goal.clone();
   const blend = 1 - Math.exp(-7 * Math.max(dt, 0.001));
   gfx.camPos.lerp(goal, blend);
   gfx.camera.position.copy(gfx.camPos);
-  gfx.camera.lookAt(focus.x - Math.cos(yaw) * 5, 1.7, focus.y - Math.sin(yaw) * 5);
+  const lookLift = window.Arena.floorAt ? Arena.floorAt(focus.x, focus.y, focus.height || 0) : 0;
+  gfx.camera.lookAt(focus.x - Math.cos(yaw) * 5, 1.5 + lookLift * 0.45, focus.y - Math.sin(yaw) * 5);
 
   gfx.gates.forEach((gate) => {
     gate.visible = match.phase === "prep";
@@ -765,21 +894,22 @@ function render(match, dt) {
   const hover = window.Arena.getHover ? Arena.getHover() : null;
   const aiming = match.groundAim && match.player.hp > 0;
   const radius = aiming ? match.groundAim.range : hover && match.player.hp > 0 ? (hover.radius || hover.range || 0) : 0;
+  const feet = window.Arena.floorAt ? Arena.floorAt(match.player.x, match.player.y, match.player.height || 0) : 0;
   gfx.rangeRing.visible = radius > 0;
   if (radius > 0) {
-    gfx.rangeRing.position.set(match.player.x, 0.08, match.player.y);
+    gfx.rangeRing.position.set(match.player.x, feet + 0.08, match.player.y);
     gfx.rangeRing.scale.setScalar(radius);
   }
   const minRange = aiming ? match.groundAim.minRange : hover && hover.minRange;
   gfx.minRing.visible = !!(minRange && match.player.hp > 0);
   if (gfx.minRing.visible) {
-    gfx.minRing.position.set(match.player.x, 0.09, match.player.y);
+    gfx.minRing.position.set(match.player.x, feet + 0.09, match.player.y);
     gfx.minRing.scale.setScalar(minRange);
   }
   const cursor = aiming ? match.groundAim.cursor : null;
   gfx.aimRing.visible = !!cursor;
   if (cursor) {
-    gfx.aimRing.position.set(cursor.x, 0.12, cursor.y);
+    gfx.aimRing.position.set(cursor.x, (cursor.h || 0) + 0.12, cursor.y);
     gfx.aimRing.scale.setScalar((match.groundAim.radius || 3) / 3);
     gfx.aimRing.material.color.set(cursor.ok ? 0x7ddea0 : 0xe15b5b);
   }
@@ -789,10 +919,10 @@ function render(match, dt) {
   gfx.targetLine.visible = false;
   gfx.dashLine.visible = false;
   if (showLine) {
-    const los = segmentClear(match.player.x, match.player.y, target.x, target.y);
+    const los = window.Arena.hasLoS ? Arena.hasLoS(match.player, target) : true;
     const line = los ? gfx.targetLine : gfx.dashLine;
     line.visible = true;
-    placeLine(line, match.player.x, match.player.y, target.x, target.y);
+    placeLine(line, match.player.x, match.player.y, target.x, target.y, Math.max(match.player.height || 0, target.height || 0) + 0.2);
   }
 
   syncTraps(match);
@@ -1035,35 +1165,6 @@ function syncCastLines(match) {
   });
 }
 
-function segmentClear(x1, z1, x2, z2) {
-  const box = pillarAabb();
-  const dx = x2 - x1;
-  const dz = z2 - z1;
-  let tmin = 0;
-  let tmax = 1;
-  const checks = [
-    { p: -dx, q: x1 - box.minX },
-    { p: dx, q: box.maxX - x1 },
-    { p: -dz, q: z1 - box.minZ },
-    { p: dz, q: box.maxZ - z1 },
-  ];
-  for (const { p, q } of checks) {
-    if (Math.abs(p) < 1e-8) {
-      if (q < 0) return true;
-    } else {
-      const r = q / p;
-      if (p < 0) {
-        if (r > tmax) return true;
-        if (r > tmin) tmin = r;
-      } else {
-        if (r < tmin) return true;
-        if (r < tmax) tmax = r;
-      }
-    }
-  }
-  return !(tmax >= tmin && tmin <= 1 && tmax >= 0);
-}
-
 function pointerRay(clientX, clientY) {
   if (!gfx) return false;
   const rect = gfx.canvas.getBoundingClientRect();
@@ -1076,9 +1177,17 @@ function pointerRay(clientX, clientY) {
 
 function groundPoint(clientX, clientY) {
   if (!pointerRay(clientX, clientY)) return null;
-  const hit = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
-  return { x: hit.x, z: hit.z };
+  const planeHit = new THREE.Vector3();
+  const hitPlane = raycaster.ray.intersectPlane(groundPlane, planeHit);
+  const player = window.Arena && Arena.match && Arena.match.player;
+  const under = player && Arena.underDeck && Arena.underDeck(player.x, player.y, player.height || 0);
+  const hits = !under && gfx.walkables && gfx.walkables.length ? raycaster.intersectObjects(gfx.walkables, false) : [];
+  if (hits.length) {
+    const p = hits[0].point;
+    return { x: p.x, z: p.z, h: p.y };
+  }
+  if (!hitPlane) return null;
+  return { x: planeHit.x, z: planeHit.z, h: 0 };
 }
 
 function pickUnitId(clientX, clientY) {
@@ -1153,6 +1262,7 @@ function bind(onLeftClick) {
 
 window.ArenaView = {
   getYaw() { return yaw; },
+  setMap,
   resize,
   render,
   groundPoint,

@@ -21,6 +21,8 @@ const TYPES = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
 };
@@ -147,7 +149,7 @@ function tryFill(size) {
   live.set(id, liveMatch);
   for (const member of group) {
     member.live = liveMatch;
-    send(member.socket, { t: "msg", from: 0, id: member.id, data: { kind: "start", roster, server: true } });
+    send(member.socket, { t: "msg", from: 0, id: member.id, data: { kind: "start", roster, server: true, map: arena.match.map } });
   }
   if (q.length) publishQueue(size);
 }
