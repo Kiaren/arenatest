@@ -883,16 +883,23 @@ function placeFx(group, effect) {
 function syncFx(match) {
   if (!gfx.fxMeshes) gfx.fxMeshes = new Map();
   const live = new Set();
-  for (const effect of match.fx || []) {
-    live.add(effect.id);
-    let mesh = gfx.fxMeshes.get(effect.id);
+  (match.fx || []).forEach((effect, index) => {
+    const key = effect.id != null ? effect.id : "fx" + index;
+    live.add(key);
+    let mesh = gfx.fxMeshes.get(key);
+    if (mesh && mesh.userData.kind !== effect.kind) {
+      gfx.scene.remove(mesh);
+      disposeObject(mesh);
+      gfx.fxMeshes.delete(key);
+      mesh = null;
+    }
     if (!mesh) {
       mesh = makeFxMesh(effect);
       gfx.scene.add(mesh);
-      gfx.fxMeshes.set(effect.id, mesh);
+      gfx.fxMeshes.set(key, mesh);
     }
     placeFx(mesh, effect);
-  }
+  });
   for (const [id, mesh] of gfx.fxMeshes) {
     if (live.has(id)) continue;
     gfx.scene.remove(mesh);

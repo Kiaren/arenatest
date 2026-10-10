@@ -4879,8 +4879,8 @@ function packMatch() {
     traps: match.traps.map((t) => ({ ownerId: t.ownerId, team: t.team, x: t.x, y: t.y, life: t.life, arm: t.arm, radius: t.radius })),
     lanterns: (match.lanterns || []).map((l) => ({ ownerId: l.ownerId, team: l.team, x: l.x, y: l.y, life: l.life, radius: l.radius, tick: l.tick, beacon: l.beacon })),
     fx: (match.fx || []).map((effect) => ({
-      kind: effect.kind, color: effect.color, x: effect.x, y: effect.y, h: effect.h,
-      x2: effect.x2, y2: effect.y2, h2: effect.h2, life: effect.life, size: effect.size, round: !!effect.round,
+      id: effect.id, kind: effect.kind, color: effect.color, x: effect.x, y: effect.y, h: effect.h,
+      x2: effect.x2, y2: effect.y2, h2: effect.h2, life: effect.life, max: effect.max, size: effect.size, round: !!effect.round,
     })),
     floaters: match.floaters.map((f) => ({ x: f.x, y: f.y, h: f.h, text: f.text, color: f.color, life: f.life })),
     units: match.units.map((unit) => ({
