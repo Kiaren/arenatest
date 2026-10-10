@@ -88,12 +88,19 @@ button, input { font-family: inherit; }
 
 .class-card header {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   border-top: 3px solid var(--accent);
   padding-top: 8px;
   margin-bottom: 4px;
+}
+
+.crest {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 .class-card h2 {
@@ -522,7 +529,10 @@ button, input { font-family: inherit; }
   height: 74px;
   border-radius: 8px;
   border: 1px solid #7d6540;
-  background: radial-gradient(circle at 50% 20%, #4a4036, #241e19 70%);
+  background:
+    linear-gradient(180deg, rgba(12, 9, 7, 0.05) 20%, rgba(12, 9, 7, 0.82) 100%),
+    var(--icon) center/cover no-repeat,
+    radial-gradient(circle at 50% 20%, #4a4036, #241e19 70%);
   color: var(--text);
   padding: 4px;
   cursor: pointer;
@@ -545,6 +555,7 @@ button, input { font-family: inherit; }
   margin-top: 16px;
   font-weight: 700;
   font-size: 13px;
+  text-shadow: 0 1px 2px #000;
 }
 .ability .cost {
   position: absolute;

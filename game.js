@@ -4881,6 +4881,270 @@ function fmtTime(t) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+const SPELL_GLYPH = {
+  charge: "rush", mortalStrike: "slash", hamstring: "slow", overpower: "press", execute: "finisher",
+  pummel: "interrupt", heroicLeap: "leap", brace: "guard", spellReflection: "reflect",
+  frostbolt: "ice", fireBlast: "fire", polymorph: "sheep", counterspell: "interrupt", blink: "blink",
+  frostNova: "nova", scorch: "fire", pyroblast: "inferno", emberWard: "ward", iceBlock: "ice",
+  aimedShot: "shot", concussiveShot: "slow", freezingTrap: "trap", wingClip: "slow", silencingShot: "interrupt",
+  disengage: "back", feignDeath: "feign", pin: "root", deterrence: "deflect",
+  flashHeal: "heal", powerWordShield: "shield", shadowWordPain: "pain", psychicScream: "fear",
+  dispelMagic: "cleanse", mindBlast: "mind", penance: "channel", blessing: "bless", desperatePrayer: "heal",
+  shadowBolt: "shadow", corruption: "dot", agony: "dot", unstableAffliction: "curse", fear: "fear",
+  spellLock: "interrupt", drainLife: "drain", wither: "wither", healthstone: "stone",
+  rejuvenation: "leaf", lifebloom: "bloom", regrowth: "leaf", wildGrowth: "bloom", swiftmend: "heal",
+  cyclone: "cyclone", wrath: "leaf", thicket: "root", ironbark: "bark",
+  sinisterStrike: "dagger", eviscerate: "finisher", cheapShot: "stun", kick: "interrupt", gouge: "stun",
+  sprint: "rush", stealth: "veil", step: "blink", vanish: "veil",
+  kindle: "lantern", soothe: "heal", shelter: "shield", hush: "interrupt", flare: "lantern",
+  mend: "heal", snuff: "fire", tend: "lantern", beacon: "lantern",
+  lash: "chain", brand: "brand", yank: "yank", sever: "slash", silenceLash: "interrupt",
+  hobble: "slow", reel: "yank", barbs: "chain", bind: "chain",
+  oath: "heart", pulse: "heal", link: "link", unravel: "cleanse", chorus: "heal", rebuke: "interrupt",
+  thread: "link", comfort: "heal", unity: "heart",
+  mark: "mark", fleche: "slash", riposte: "deflect", lunge: "rush", crosscut: "cross",
+  parry: "deflect", feint: "veil", flourish: "finisher", isolate: "mark", trinket: "charm",
+};
+
+const iconCache = {};
+
+function spellIcon(id) {
+  if (iconCache[id]) return iconCache[id];
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  const kind = SPELL_GLYPH[id] || "spark";
+  const ink = {
+    ice: "#9fdfff", fire: "#ff8a3c", inferno: "#ffd27a", shadow: "#c9a0ff", sheep: "#d7e7f2",
+    heal: "#8dffb0", leaf: "#7dff9a", bloom: "#d6ff7a", pain: "#d07cff", fear: "#e7c4ff",
+    lantern: "#d8fff6", heart: "#ffb3cf", chain: "#f0d48a", charm: "#8fd0c3",
+  }[kind] || "#f3e2b8";
+  ctx.fillStyle = "#16120f";
+  ctx.fillRect(0, 0, 128, 128);
+  const glow = ctx.createRadialGradient(64, 52, 6, 64, 64, 68);
+  glow.addColorStop(0, ink);
+  glow.addColorStop(1, "rgba(22,18,15,0)");
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "rgba(224,193,122,0.85)";
+  ctx.lineWidth = 5;
+  ctx.strokeRect(7, 7, 114, 114);
+  ctx.save();
+  ctx.translate(64, 66);
+  ctx.fillStyle = ink;
+  ctx.strokeStyle = "#f7f1e4";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const blade = (rot, len) => {
+    ctx.save();
+    ctx.rotate(rot);
+    ctx.fillRect(-5, -len / 2, 10, len);
+    ctx.beginPath();
+    ctx.moveTo(-12, -len / 2 + 4);
+    ctx.lineTo(12, -len / 2 + 4);
+    ctx.lineTo(0, -len / 2 - 14);
+    ctx.fill();
+    ctx.restore();
+  };
+  if (kind === "slash" || kind === "press" || kind === "finisher" || kind === "dagger" || kind === "cross") {
+    blade(-0.65, kind === "dagger" ? 52 : 74);
+    if (kind === "cross" || kind === "finisher") blade(0.65, 74);
+  } else if (kind === "rush" || kind === "back" || kind === "blink") {
+    ctx.beginPath();
+    ctx.moveTo(-28, 10);
+    ctx.lineTo(8, 10);
+    ctx.lineTo(8, 24);
+    ctx.lineTo(36, 0);
+    ctx.lineTo(8, -24);
+    ctx.lineTo(8, -10);
+    ctx.lineTo(-28, -10);
+    ctx.closePath();
+    ctx.fill();
+    if (kind === "blink") { ctx.globalAlpha = 0.45; ctx.translate(-18, 0); ctx.fill(); }
+  } else if (kind === "slow" || kind === "root") {
+    ctx.beginPath();
+    ctx.arc(0, 8, 26, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-18, 28); ctx.lineTo(0, -8); ctx.lineTo(18, 28);
+    ctx.stroke();
+  } else if (kind === "interrupt" || kind === "stun") {
+    ctx.beginPath();
+    ctx.moveTo(-24, -24); ctx.lineTo(24, 24); ctx.moveTo(24, -24); ctx.lineTo(-24, 24);
+    ctx.stroke();
+  } else if (kind === "leap") {
+    ctx.beginPath();
+    ctx.arc(0, 18, 36, Math.PI, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 22, 6, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "guard" || kind === "shield" || kind === "deflect" || kind === "reflect" || kind === "ward" || kind === "bark") {
+    ctx.beginPath();
+    ctx.moveTo(0, -36);
+    ctx.lineTo(28, -16);
+    ctx.lineTo(22, 22);
+    ctx.lineTo(0, 38);
+    ctx.lineTo(-22, 22);
+    ctx.lineTo(-28, -16);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === "ice" || kind === "nova") {
+    for (let i = 0; i < 6; i++) {
+      ctx.rotate(Math.PI / 3);
+      ctx.fillRect(-3, -34, 6, 68);
+    }
+  } else if (kind === "fire" || kind === "inferno") {
+    ctx.beginPath();
+    ctx.moveTo(0, -40);
+    ctx.bezierCurveTo(28, -8, 22, 20, 0, 38);
+    ctx.bezierCurveTo(-22, 20, -28, -8, 0, -40);
+    ctx.fill();
+  } else if (kind === "sheep") {
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 28, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(-16, -16, 8, 0, Math.PI * 2);
+    ctx.arc(16, -16, 8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "shot") {
+    ctx.beginPath();
+    ctx.moveTo(-30, 16); ctx.lineTo(20, -28); ctx.lineTo(8, -10); ctx.lineTo(30, -16); ctx.lineTo(-8, 22); ctx.closePath();
+    ctx.fill();
+  } else if (kind === "trap") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 28, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-3, -22, 6, 12);
+    }
+  } else if (kind === "feign") {
+    ctx.beginPath();
+    ctx.ellipse(0, 8, 34, 14, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (kind === "heal" || kind === "bless") {
+    ctx.fillRect(-8, -28, 16, 56);
+    ctx.fillRect(-28, -8, 56, 16);
+  } else if (kind === "pain" || kind === "dot" || kind === "curse" || kind === "wither" || kind === "drain") {
+    ctx.beginPath();
+    ctx.moveTo(0, -32);
+    ctx.bezierCurveTo(26, -6, 18, 24, 0, 36);
+    ctx.bezierCurveTo(-18, 24, -26, -6, 0, -32);
+    ctx.fill();
+  } else if (kind === "fear") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillRect(-16, -6, 8, 14);
+    ctx.fillRect(8, -6, 8, 14);
+  } else if (kind === "cleanse") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 26, 0.4, Math.PI * 1.7);
+    ctx.stroke();
+  } else if (kind === "mind" || kind === "channel") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, 28, 0, Math.PI * 1.6);
+    ctx.stroke();
+  } else if (kind === "shadow") {
+    ctx.beginPath();
+    ctx.arc(0, 4, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1a1224";
+    ctx.beginPath();
+    ctx.arc(8, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "stone") {
+    ctx.beginPath();
+    ctx.moveTo(0, -30); ctx.lineTo(26, -8); ctx.lineTo(16, 30); ctx.lineTo(-16, 30); ctx.lineTo(-26, -8);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === "leaf" || kind === "bloom") {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 16, 32, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+    if (kind === "bloom") {
+      ctx.rotate(2);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16, 32, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (kind === "cyclone") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0.2, Math.PI * 1.6);
+    ctx.arc(0, 0, 16, Math.PI * 1.2, Math.PI * 2.5);
+    ctx.stroke();
+  } else if (kind === "veil") {
+    ctx.beginPath();
+    ctx.moveTo(-30, 20);
+    ctx.quadraticCurveTo(0, -40, 30, 20);
+    ctx.quadraticCurveTo(0, 4, -30, 20);
+    ctx.fill();
+  } else if (kind === "lantern") {
+    ctx.fillRect(-12, -28, 24, 36);
+    ctx.beginPath();
+    ctx.arc(0, -2, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff8e8";
+    ctx.fill();
+  } else if (kind === "chain" || kind === "yank" || kind === "link" || kind === "brand") {
+    ctx.beginPath();
+    ctx.arc(-12, 0, 14, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(12, 0, 14, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (kind === "heart") {
+    ctx.beginPath();
+    ctx.arc(-12, -8, 14, 0, Math.PI * 2);
+    ctx.arc(12, -8, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-26, -2); ctx.lineTo(0, 32); ctx.lineTo(26, -2);
+    ctx.fill();
+  } else if (kind === "mark") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 26, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-36, 0); ctx.lineTo(36, 0); ctx.moveTo(0, -36); ctx.lineTo(0, 36);
+    ctx.stroke();
+  } else if (kind === "charm") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#17332e";
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(0, -34);
+    ctx.lineTo(10, -8);
+    ctx.lineTo(34, 0);
+    ctx.lineTo(10, 8);
+    ctx.lineTo(0, 34);
+    ctx.lineTo(-10, 8);
+    ctx.lineTo(-34, 0);
+    ctx.lineTo(-10, -8);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  iconCache[id] = canvas.toDataURL("image/png");
+  return iconCache[id];
+}
+
+const CLASS_CREST = {
+  warrior: "charge", mage: "fireBlast", hunter: "aimedShot", priest: "flashHeal", warlock: "shadowBolt",
+  druid: "rejuvenation", rogue: "stealth", warden: "kindle", binder: "lash", vow: "oath", duelist: "mark",
+};
+
 function buildMatchUi() {
   if (window.HEADLESS) return;
   const enemyWrap = $("enemy-frames");
@@ -4909,6 +5173,7 @@ function buildMatchUi() {
     btn.type = "button";
     btn.className = `ability ${ability.tag === "Signature" ? "signature" : ""} ${ability.tag === "Trinket" ? "trinket" : ""}`;
     btn.innerHTML = `<span class="key">${bindFor(ability).toUpperCase()}</span><span class="short">${ability.short}</span><span class="cost"></span><span class="sweep"></span><span class="cd"></span>`;
+    btn.style.setProperty("--icon", `url("${spellIcon(ability.id)}")`);
     btn.addEventListener("mousedown", (e) => e.preventDefault());
     btn.addEventListener("click", () => pressAbility(ability));
     btn.addEventListener("mouseenter", (e) => {
@@ -5680,7 +5945,7 @@ function renderLobby() {
     const cls = CLASSES[id];
     const spells = cls.abilities.map((a) => `<li>${esc(a.name)}<span>${esc(bindFor(a).toUpperCase())}</span></li>`).join("");
     return `<button type="button" class="class-card ${selected ? "selected" : ""}" data-class="${id}" style="--accent:${cls.color}">
-      <header><h2>${esc(cls.name)}</h2><span class="role">${esc(cls.role)} · ${esc(cls.resource.name)}</span></header>
+      <header><img class="crest" alt="" src="${spellIcon(CLASS_CREST[id] || "charge")}"><div><h2>${esc(cls.name)}</h2><span class="role">${esc(cls.role)} · ${esc(cls.resource.name)}</span></div></header>
       <ul>${spells}</ul>
     </button>`;
   };
