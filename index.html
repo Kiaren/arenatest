@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arena</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="lobby"></div>
+  <div id="match" class="hidden">
+    <header id="topbar">
+      <div id="enemy-frames" class="frames"></div>
+      <div id="match-info">
+        <div id="clock">0:00</div>
+        <div id="damp">Dampening 0%</div>
+        <div id="phase-label">Prepare</div>
+      </div>
+    </header>
+    <div id="stage">
+      <canvas id="arena"></canvas>
+      <div id="announce"></div>
+      <div id="result" class="hidden"></div>
+    </div>
+    <footer id="bottom">
+      <div id="party-frames" class="frames"></div>
+      <div id="console">
+        <div id="castbar" class="hidden">
+          <div id="cast-fill"></div>
+          <span id="cast-label"></span>
+        </div>
+        <div id="status-line"></div>
+        <div id="abilities"></div>
+        <div id="hint">WASD move · Space jump · right-drag orbit · wheel zoom · 1–4, E, Q, R spells · C Inferno · ground aim then click · T trinket · F signature · Tab targets</div>
+      </div>
+      <div id="log"></div>
+    </footer>
+  </div>
+  <div id="tooltip" class="hidden"></div>
+  <script src="three.min.js"></script>
+  <script src="arena3d.js"></script>
+  <script src="net.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
