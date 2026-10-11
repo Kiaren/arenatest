@@ -1557,7 +1557,7 @@ const CLASSES = {
     name: "Shade",
     color: CLASS_COLORS.rogue,
     role: "Melee",
-    blurb: "Opens from the veil with a stun, then sticks to a target. Fade drops combat and puts you back in the veil.",
+    blurb: "Opens from the veil with a stun, then sticks to a target. Veil works in a fight. Fade is a second, shorter veil.",
     hp: 2950,
     speed: 13,
     melee: true,
@@ -1701,7 +1701,7 @@ const CLASSES = {
         castTime: 0,
         school: "physical",
         target: "self",
-        blurb: "Fade out and drop enemy targeting. Lasts 20 sec. Dealing or taking damage reveals you. Blindside requires the veil.",
+        blurb: "Fade out and drop enemy targeting. Lasts 20 sec, and you can use it during a fight. Attacking reveals you. A direct hit reveals you. Blindside requires the veil.",
         extra(source) {
           if (isVeiled(source)) return "Already veiled";
           return null;
@@ -2758,6 +2758,15 @@ const LETTER_CODES = {
   q: "KeyQ", e: "KeyE", r: "KeyR", t: "KeyT", f: "KeyF", g: "KeyG",
   z: "KeyZ", x: "KeyX", c: "KeyC", v: "KeyV", b: "KeyB", y: "KeyY", h: "KeyH",
 };
+const MOUSE_LABELS = {
+  Mouse0: ["Left click", "LMB"],
+  Mouse1: ["Middle click", "MMB"],
+  Mouse2: ["Right click", "RMB"],
+  Mouse3: ["Mouse 4", "M4"],
+  Mouse4: ["Mouse 5", "M5"],
+  WheelUp: ["Wheel up", "WU"],
+  WheelDown: ["Wheel down", "WD"],
+};
 let binds = {};
 let rebinding = null;
 let bindNote = "";
@@ -2776,18 +2785,41 @@ function targetCode(id) {
   return action ? action.code : "";
 }
 
+function isMouseBind(token) {
+  return typeof token === "string" && (token.startsWith("Mouse") || token.startsWith("Wheel"));
+}
+
+function spellTokenFromCode(code) {
+  if (BIND_CODES[code]) return BIND_CODES[code];
+  if (isMouseBind(code)) return code;
+  return "";
+}
+
+function codeFromSpellToken(token) {
+  if (LETTER_CODES[token]) return LETTER_CODES[token];
+  if (isMouseBind(token)) return token;
+  return "";
+}
+
 function codeLabel(code) {
   if (!code) return "—";
+  if (MOUSE_LABELS[code]) return MOUSE_LABELS[code][0];
   if (BIND_CODES[code]) return BIND_CODES[code].toUpperCase();
   return code;
 }
 
+function bindLabel(ability, compact) {
+  const key = bindFor(ability);
+  if (MOUSE_LABELS[key]) return MOUSE_LABELS[key][compact ? 1 : 0];
+  return String(key).toUpperCase();
+}
+
 function bindPrompt(picked) {
   if (bindNote) return bindNote;
-  if (!rebinding) return "Click a row, then press a key. Saved in this browser.";
+  if (!rebinding) return "Click a row, then press a key, a mouse button, or the scroll wheel. Saved in this browser.";
   const target = TARGET_ACTIONS.find((a) => a.id === rebinding);
   const spell = picked.abilities.find((a) => a.id === rebinding);
-  return `Press a key for ${target ? target.name : spell.name}.`;
+  return `Press a key, a mouse button, or the scroll wheel for ${target ? target.name : spell.name}.`;
 }
 
 function saveBinds() {
@@ -2800,9 +2832,9 @@ function setBind(abilityId, key) {
   if (!mine) return;
   const taken = list.find((a) => a.id !== abilityId && bindFor(a) === key);
   if (taken) binds[taken.id] = bindFor(mine);
-  const code = LETTER_CODES[key];
+  const code = codeFromSpellToken(key);
   const otherTarget = TARGET_ACTIONS.find((a) => code && targetCode(a.id) === code);
-  if (otherTarget) binds[otherTarget.id] = LETTER_CODES[bindFor(mine)] || "";
+  if (otherTarget) binds[otherTarget.id] = codeFromSpellToken(bindFor(mine)) || "";
   binds[abilityId] = key;
   saveBinds();
 }
@@ -2811,11 +2843,11 @@ function setTargetBind(id, code) {
   const previous = targetCode(id);
   const other = TARGET_ACTIONS.find((a) => a.id !== id && targetCode(a.id) === code);
   if (other) binds[other.id] = previous;
-  const letter = BIND_CODES[code];
+  const letter = spellTokenFromCode(code);
   if (letter) {
     const taken = CLASSES[setup.player].abilities.find((a) => bindFor(a) === letter);
     if (taken) {
-      const prevLetter = BIND_CODES[previous];
+      const prevLetter = spellTokenFromCode(previous);
       const prevFree = prevLetter && !CLASSES[setup.player].abilities.some((a) => a !== taken && bindFor(a) === prevLetter);
       if (prevFree) binds[taken.id] = prevLetter;
       else {
@@ -2895,6 +2927,11 @@ function isVeiled(unit) {
 
 function isHidden(unit) {
   return isFeigning(unit) || isVeiled(unit);
+}
+
+function veiledFromViewer(unit) {
+  if (!unit || unit.hp <= 0 || !isVeiled(unit) || !match || !match.player) return false;
+  return unit.team !== match.player.team;
 }
 
 function dropHostileTarget(source) {
@@ -3363,6 +3400,7 @@ function spellVisual(id, source, target, from) {
     h: look.kind === "ring" || look.kind === "nova" ? 0.12 : 1.15 + (at.height || 0),
     life: look.life,
     size: look.size || 1,
+    conceal: id === "stealth" || id === "vanish" ? source.team : "",
   });
 }
 
@@ -3374,6 +3412,7 @@ function releaseSpell(source, target, ability) {
 
 function floater(unit, text, color) {
   match.floaters.push({
+    unitId: unit.id,
     x: unit.x + (Math.random() - 0.5) * 2,
     y: unit.y - 1.6,
     h: unit.height || 0,
@@ -3523,7 +3562,7 @@ function dealDamage(source, target, raw, meta) {
       target.lastHitTime = match.time;
     }
     breakIncaps(target);
-    breakVeil(target);
+    if (meta.direct) breakVeil(target);
   }
   if (meta.direct && source) breakVeil(source);
   if (source) source.stats.damage += remaining;
@@ -5454,7 +5493,7 @@ function buildMatchUi() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `ability ${ability.tag === "Signature" ? "signature" : ""} ${ability.tag === "Trinket" ? "trinket" : ""}`;
-    btn.innerHTML = `<span class="key">${bindFor(ability).toUpperCase()}</span><span class="short">${ability.short}</span><span class="cost"></span><span class="sweep"></span><span class="cd"></span>`;
+    btn.innerHTML = `<span class="key">${bindLabel(ability, true)}</span><span class="short">${ability.short}</span><span class="cost"></span><span class="sweep"></span><span class="cd"></span>`;
     btn.style.setProperty("--icon", `url("${spellIcon(ability.id)}")`);
     btn.addEventListener("mousedown", (e) => e.preventDefault());
     btn.addEventListener("click", () => pressAbility(ability));
@@ -5501,10 +5540,15 @@ function showTip(e, html) {
 function moveTip(e) {
   const tip = $("tooltip");
   if (tip.classList.contains("hidden")) return;
-  const x = Math.min(window.innerWidth - 280, e.clientX + 16);
-  const y = Math.min(window.innerHeight - 20, e.clientY + 16);
-  tip.style.left = `${x}px`;
-  tip.style.top = `${y}px`;
+  const pad = 12;
+  const width = tip.offsetWidth || 260;
+  const height = tip.offsetHeight || 80;
+  let x = e.clientX + 16;
+  let y = e.clientY + 16;
+  if (x + width > window.innerWidth - pad) x = e.clientX - width - 12;
+  if (y + height > window.innerHeight - pad) y = e.clientY - height - 12;
+  tip.style.left = `${Math.max(pad, x)}px`;
+  tip.style.top = `${Math.max(pad, y)}px`;
 }
 
 function hideTip() {
@@ -5535,7 +5579,9 @@ function updateHud() {
 
   for (const unit of match.units) {
     const el = unit.el;
-    el.classList.toggle("selected", match.player.targetId === unit.id);
+    const concealed = veiledFromViewer(unit);
+    el.classList.toggle("hidden", concealed);
+    el.classList.toggle("selected", !concealed && match.player.targetId === unit.id);
     el.classList.toggle("dead", unit.hp <= 0);
     el.querySelector(".fname").textContent = unit === match.player && unit.name !== "You" ? `${unit.name} (you)` : unit.name;
     el.querySelector(".sub").textContent = CLASSES[unit.classId].role;
@@ -5852,8 +5898,9 @@ function packMatch() {
     fx: (match.fx || []).map((effect) => ({
       id: effect.id, kind: effect.kind, color: effect.color, x: effect.x, y: effect.y, h: effect.h,
       x2: effect.x2, y2: effect.y2, h2: effect.h2, life: effect.life, max: effect.max, size: effect.size, round: !!effect.round,
+      conceal: effect.conceal || "",
     })),
-    floaters: match.floaters.map((f) => ({ x: f.x, y: f.y, h: f.h, text: f.text, color: f.color, life: f.life })),
+    floaters: match.floaters.map((f) => ({ unitId: f.unitId, x: f.x, y: f.y, h: f.h, text: f.text, color: f.color, life: f.life })),
     units: match.units.map((unit) => ({
       id: unit.id,
       x: unit.x,
@@ -6353,7 +6400,7 @@ function renderLobby() {
           </div>
           <div class="section-label">Spells</div>
           <div class="bind-grid">
-            ${picked.abilities.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(bindFor(a).toUpperCase())}</b></button>`).join("")}
+            ${picked.abilities.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(bindLabel(a, false))}</b></button>`).join("")}
           </div>
           <div class="lobby-actions"><button type="button" class="text-btn" id="reset-binds">Reset keys</button></div>
         </aside>
@@ -6505,7 +6552,7 @@ function renderDossier() {
     const bits = [a.channel ? `${a.castTime}s channel` : a.castTime ? `${a.castTime}s cast` : "Instant"];
     if (a.cost) bits.push(`${a.cost} ${cls.resource.name.toLowerCase()}`);
     if (a.cd) bits.push(`${a.cd}s cd`);
-    return `<article><strong>${bindFor(a).toUpperCase()} · ${esc(a.name)}</strong><p>${esc(bits.join(" · "))}. ${esc(a.blurb)}</p></article>`;
+    return `<article><strong>${bindLabel(a, false)} · ${esc(a.name)}</strong><p>${esc(bits.join(" · "))}. ${esc(a.blurb)}</p></article>`;
   }).join("");
 }
 
@@ -6531,33 +6578,63 @@ function cycleFriend() {
   if (match.netRole === "client") sendInput();
 }
 
+function lobbyRebinding() {
+  return rebinding && (!match || $("match").classList.contains("hidden"));
+}
+
+function matchOpen() {
+  return !!(match && $("match") && !$("match").classList.contains("hidden"));
+}
+
+function finishRebind(code) {
+  const moving = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+  const targetKey = code === "Tab" || /^F([1-9]|1[0-2])$/.test(code);
+  const mouse = isMouseBind(code);
+  if (code === "Escape") {
+    rebinding = null;
+    bindNote = "";
+  } else if (moving.includes(code)) {
+    bindNote = "That key is for moving or jumping.";
+  } else if (rebinding.startsWith("target:") && (BIND_CODES[code] || targetKey || mouse)) {
+    setTargetBind(rebinding, code);
+    bindNote = "";
+    rebinding = null;
+  } else if (!rebinding.startsWith("target:") && (BIND_CODES[code] || mouse)) {
+    setBind(rebinding, mouse ? code : BIND_CODES[code]);
+    bindNote = "";
+    rebinding = null;
+  } else if (targetKey) {
+    bindNote = "Tab and the F keys are for targeting.";
+  } else {
+    bindNote = "Use a key, a mouse button, or the scroll wheel.";
+  }
+  renderLobby();
+}
+
+function tokenBound(token) {
+  if (!match || !match.player) return false;
+  if (targetActionFor(token, false)) return true;
+  return match.player.abilities.some((a) => bindFor(a) === token);
+}
+
+function fireToken(token, shift) {
+  if (!matchOpen() || !match.player || match.player.hp <= 0) return false;
+  const targetAction = targetActionFor(token, shift);
+  if (targetAction) {
+    doTargetAction(targetAction);
+    return true;
+  }
+  const ability = match.player.abilities.find((a) => bindFor(a) === token);
+  if (!ability) return false;
+  pressAbility(ability);
+  return true;
+}
+
 function onKeyDown(e) {
   if (e.repeat) return;
-  if (rebinding && (!match || $("match").classList.contains("hidden"))) {
+  if (lobbyRebinding()) {
     e.preventDefault();
-    const moving = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
-    const targetKey = e.code === "Tab" || /^F([1-9]|1[0-2])$/.test(e.code);
-    if (e.code === "Escape") {
-      rebinding = null;
-      bindNote = "";
-    } else if (moving.includes(e.code)) {
-      bindNote = "That key is for moving or jumping.";
-    } else if (rebinding.startsWith("target:") && (BIND_CODES[e.code] || targetKey)) {
-      setTargetBind(rebinding, e.code);
-      bindNote = "";
-      rebinding = null;
-    } else if (!rebinding.startsWith("target:") && BIND_CODES[e.code]) {
-      setBind(rebinding, BIND_CODES[e.code]);
-      bindNote = "";
-      rebinding = null;
-    } else if (targetKey) {
-      bindNote = "Tab and the F keys are for targeting.";
-    } else {
-      bindNote = rebinding.startsWith("target:")
-        ? "Use a letter, a number, Tab, or an F key."
-        : "Use 1–6, Q, E, R, T, F, G, Z, X, C, V, B, Y, or H.";
-    }
-    renderLobby();
+    finishRebind(e.code);
     return;
   }
   keysDown.add(e.code);
@@ -6601,6 +6678,7 @@ function canvasClick(e) {
     confirmGroundAim();
     return;
   }
+  if (fireToken("Mouse0", e.shiftKey)) return;
   const hitId = ArenaView.pickUnitId(e.clientX, e.clientY);
   if (hitId) {
     const unit = unitById(hitId);
@@ -6637,8 +6715,53 @@ if (!window.HEADLESS) {
 
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
+  let rightPress = null;
+  let wheelLock = 0;
+  window.addEventListener("pointerdown", (e) => {
+    if (lobbyRebinding()) {
+      if (e.target.closest && e.target.closest("button, input, a, select, textarea")) return;
+      e.preventDefault();
+      finishRebind("Mouse" + e.button);
+      return;
+    }
+    if (!matchOpen()) return;
+    if (e.target.closest && e.target.closest("#actionbar, #unit-frames, #leave-training, #result, button, input, a")) return;
+    if (e.button === 3 || e.button === 4) e.preventDefault();
+    if (e.button === 2) {
+      rightPress = { x: e.clientX, y: e.clientY, moved: false };
+      return;
+    }
+    if (e.button === 0) return;
+    fireToken("Mouse" + e.button, e.shiftKey);
+  });
+  window.addEventListener("pointerup", (e) => {
+    if (!rightPress || e.button !== 2) return;
+    const press = rightPress;
+    rightPress = null;
+    if (!press.moved) fireToken("Mouse2", e.shiftKey);
+  });
   window.addEventListener("pointermove", (e) => {
     lastPointer = { x: e.clientX, y: e.clientY };
+    if (rightPress && Math.hypot(e.clientX - rightPress.x, e.clientY - rightPress.y) > 6) rightPress.moved = true;
+  });
+  window.addEventListener("wheel", (e) => {
+    const token = e.deltaY < 0 ? "WheelUp" : e.deltaY > 0 ? "WheelDown" : "";
+    if (!token) return;
+    if (lobbyRebinding()) {
+      e.preventDefault();
+      finishRebind(token);
+      return;
+    }
+    if (!matchOpen() || !tokenBound(token)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const now = performance.now();
+    if (now - wheelLock < 180) return;
+    wheelLock = now;
+    fireToken(token, e.shiftKey);
+  }, { capture: true, passive: false });
+  window.addEventListener("contextmenu", (e) => {
+    if (lobbyRebinding()) e.preventDefault();
   });
   window.addEventListener("resize", resizeCanvas);
   if ($("leave-training")) $("leave-training").addEventListener("click", requestBack);
@@ -6669,6 +6792,7 @@ window.Arena = {
   underDeck,
   hasLoS,
   tallBoxes,
+  veiledFromViewer,
   createMatch,
   tryCast,
   step: update,

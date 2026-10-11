@@ -70,153 +70,244 @@ function kitMesh(parent, geometry, material, x, y, z, rx, ry, rz) {
   return mesh;
 }
 
+const CAST_KIT = {
+  warrior: { body: "knight", props: ["1H_Sword", "Round_Shield", "Knight_Helmet", "Knight_Cape"], attack: "melee", tint: "#C79C6E" },
+  mage: { body: "mage", props: ["2H_Staff", "Mage_Hat", "Mage_Cape"], attack: "cast", tint: "#69CCF0" },
+  hunter: { body: "rogue", props: ["1H_Crossbow", "Rogue_Cape"], attack: "shoot", tint: "#ABD473" },
+  priest: { body: "hooded", props: ["Rogue_Cape"], attack: "cast", tint: "#f7f4ff" },
+  warlock: { body: "mage", props: ["1H_Wand", "Spellbook", "Mage_Hat", "Mage_Cape"], attack: "cast", tint: "#9482C9" },
+  druid: { body: "barbarian", props: ["2H_Axe", "Barbarian_Hat", "Barbarian_Cape"], attack: "heavy", tint: "#FF7D0A" },
+  rogue: { body: "rogue", props: ["Knife", "Knife_Offhand", "Rogue_Cape"], attack: "dual", tint: "#FFF569" },
+  warden: { body: "knight", props: ["Rectangle_Shield", "Knight_Helmet", "Knight_Cape"], attack: "cast", tint: "#5ee0c5" },
+  binder: { body: "mage", props: ["Spellbook_open", "1H_Wand", "Mage_Hat"], attack: "cast", tint: "#e23d4a" },
+  vow: { body: "hooded", props: ["Rogue_Cape"], attack: "cast", tint: "#f2a3c7" },
+  duelist: { body: "knight", props: ["2H_Sword", "Knight_Helmet", "Knight_Cape"], attack: "heavy", tint: "#7f9cff" },
+};
+
+const castTextures = new Map();
+let castClips = null;
+
+function castBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function castFloats(b64) {
+  const bytes = castBytes(b64);
+  return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+}
+
+function castU16(b64) {
+  const bytes = castBytes(b64);
+  return new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+}
+
+function castTexture(body, b64) {
+  let tex = castTextures.get(body);
+  if (tex) return tex;
+  tex = new THREE.TextureLoader().load("data:image/png;base64," + b64);
+  if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = false;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  castTextures.set(body, tex);
+  return tex;
+}
+
+function castGeometry(part, skinned) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(castFloats(part.p), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(castFloats(part.n), 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(castFloats(part.u), 2));
+  geo.setIndex(new THREE.BufferAttribute(castU16(part.i), 1));
+  if (skinned && part.si && part.sw) {
+    const si = castBytes(part.si);
+    const sw = castBytes(part.sw);
+    const index = new Uint16Array(si.length);
+    const weight = new Float32Array(sw.length);
+    for (let i = 0; i < si.length; i++) {
+      index[i] = si[i];
+      weight[i] = sw[i] / 255;
+    }
+    geo.setAttribute("skinIndex", new THREE.BufferAttribute(index, 4));
+    geo.setAttribute("skinWeight", new THREE.BufferAttribute(weight, 4));
+  }
+  return geo;
+}
+
+function castLibrary() {
+  if (castClips || !window.ARENA_CAST) return castClips;
+  castClips = {};
+  for (const [name, clip] of Object.entries(ARENA_CAST.clips)) {
+    const times = castFloats(clip.t);
+    const tracks = [];
+    for (const [bone, track] of Object.entries(clip.bones)) {
+      tracks.push(new THREE.QuaternionKeyframeTrack(bone + ".quaternion", times, castFloats(track.q)));
+      tracks.push(new THREE.VectorKeyframeTrack(bone + ".position", times, castFloats(track.p)));
+    }
+    castClips[name] = new THREE.AnimationClip(name, clip.d, tracks);
+  }
+  return castClips;
+}
+
+function makeSheep() {
+  const sheep = new THREE.Group();
+  const wool = new THREE.MeshStandardMaterial({ color: 0xf7f4ee, roughness: 0.92 });
+  const face = new THREE.MeshStandardMaterial({ color: 0x2c241c, roughness: 0.8 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.46, 16, 12), wool);
+  body.scale.set(1.35, 0.82, 0.95);
+  body.position.set(0.05, 0.52, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), wool);
+  head.position.set(0.42, 0.62, 0);
+  const snout = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.12), face);
+  snout.position.set(0.58, 0.56, 0);
+  sheep.add(body, head, snout);
+  for (const [x, z] of [[0.16, 0.16], [0.16, -0.16], [-0.2, 0.16], [-0.2, -0.16]]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.28, 6), face);
+    leg.position.set(x, 0.14, z);
+    sheep.add(leg);
+  }
+  sheep.visible = false;
+  return sheep;
+}
+
+function fadeCast(group, name, once, force) {
+  const next = group.userData.actions[name];
+  if (!next) return;
+  const holding = group.userData.clip === name && (next.isRunning() || (once && next.paused));
+  if (holding && !force) return;
+  const prev = group.userData.actions[group.userData.clip];
+  next.enabled = true;
+  next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
+  next.clampWhenFinished = !!once;
+  next.reset().play();
+  if (prev && prev !== next) next.crossFadeFrom(prev, 0.14, false);
+  group.userData.clip = name;
+  group.userData.once = !!once;
+}
+
 function makeFighter(unit) {
   const group = new THREE.Group();
   group.userData.unitId = unit.id;
-  const classColor = new THREE.Color(window.Arena.CLASSES[unit.classId].color);
+  const kit = CAST_KIT[unit.classId] || CAST_KIT.warrior;
+  const pack = window.ARENA_CAST && ARENA_CAST.bodies[kit.body];
+  const clips = castLibrary();
   const teamColor = unit.team === "ally" ? 0x6aa2ff : 0xe15b5b;
-  const cloth = kitMat(classColor, 0.72, 0.04);
-  const skin = kitMat(0xd7b396, 0.64, 0.02);
-  const dark = kitMat(0x2a241c, 0.8, 0.08);
-  const metal = kitMat(0xd5d8df, 0.38, 0.55);
-  const wood = kitMat(0x6b4428, 0.82, 0.02);
+  const actor = new THREE.Group();
+  actor.rotation.y = Math.PI / 2;
+  group.add(actor);
+
+  let material = null;
+  if (pack && clips) {
+    const bones = pack.bones.map((bone) => {
+      const node = new THREE.Bone();
+      node.name = bone.name;
+      node.position.fromArray(bone.p);
+      node.quaternion.fromArray(bone.q);
+      return node;
+    });
+    pack.bones.forEach((bone, i) => {
+      if (bone.parent >= 0) bones[bone.parent].add(bones[i]);
+      else actor.add(bones[i]);
+    });
+    const skeleton = new THREE.Skeleton(bones);
+    const tint = new THREE.Color("#ffffff").lerp(new THREE.Color(kit.tint), 0.2);
+    material = new THREE.MeshStandardMaterial({
+      map: castTexture(kit.body, pack.tex),
+      color: tint,
+      roughness: 0.78,
+      metalness: 0.02,
+    });
+    actor.updateMatrixWorld(true);
+    for (const part of pack.parts) {
+      const mesh = new THREE.SkinnedMesh(castGeometry(part, true), material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      actor.add(mesh);
+      mesh.bind(skeleton);
+    }
+    const boneByName = new Map(bones.map((bone) => [bone.name, bone]));
+    const shown = new Set(kit.props);
+    for (const prop of pack.props) {
+      const parent = boneByName.get(prop.bone);
+      if (!parent) continue;
+      const mesh = new THREE.Mesh(castGeometry(prop, false), material);
+      mesh.position.fromArray(prop.p);
+      mesh.quaternion.fromArray(prop.q);
+      mesh.castShadow = true;
+      mesh.frustumCulled = false;
+      mesh.visible = shown.has(prop.name);
+      parent.add(mesh);
+    }
+    const mixer = new THREE.AnimationMixer(actor);
+    const actions = {};
+    for (const [name, clip] of Object.entries(clips)) actions[name] = mixer.clipAction(clip);
+    group.userData.mixer = mixer;
+    group.userData.actions = actions;
+    group.userData.clip = "";
+    fadeCast(group, "idle", false);
+  }
+
+  const sheep = makeSheep();
+  group.add(sheep);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.85, 1.05, 28),
+    new THREE.MeshBasicMaterial({ color: teamColor, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  group.add(ring);
 
   const blob = new THREE.Mesh(
-    new THREE.CircleGeometry(0.72, 16),
+    new THREE.CircleGeometry(0.7, 18),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false })
   );
   blob.rotation.x = -Math.PI / 2;
   blob.position.y = 0.02;
   group.add(blob);
 
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.92, 0.045, 8, 28),
-    new THREE.MeshBasicMaterial({ color: teamColor, transparent: true })
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 0.05;
-  group.add(ring);
-
   const select = new THREE.Mesh(
-    new THREE.TorusGeometry(1.18, 0.03, 8, 32),
-    new THREE.MeshBasicMaterial({ color: 0xf0d48a })
+    new THREE.TorusGeometry(1.15, 0.045, 8, 28),
+    new THREE.MeshBasicMaterial({ color: 0xf2d48a })
   );
   select.rotation.x = Math.PI / 2;
-  select.position.y = 0.07;
+  select.position.y = 0.08;
   select.visible = false;
   group.add(select);
 
-  const legs = [];
-  for (const side of [-1, 1]) {
-    const pivot = new THREE.Group();
-    pivot.position.set(0, 0.78, side * 0.15);
-    kitMesh(pivot, new THREE.CylinderGeometry(0.1, 0.13, 0.7, 8), dark, 0, -0.35, 0);
-    kitMesh(pivot, new THREE.BoxGeometry(0.18, 0.1, 0.16), dark, 0.05, -0.72, 0);
-    group.add(pivot);
-    legs.push(pivot);
-  }
-
-  kitMesh(group, new THREE.CylinderGeometry(0.3, 0.36, 0.78, 12), cloth, 0, 1.22, 0);
-  kitMesh(group, new THREE.SphereGeometry(0.2, 10, 8), dark, 0, 0.8, 0);
-
-  const arms = [];
-  for (const side of [-1, 1]) {
-    const pivot = new THREE.Group();
-    pivot.position.set(0.02, 1.46, side * 0.36);
-    kitMesh(pivot, new THREE.CylinderGeometry(0.07, 0.09, 0.56, 8), cloth, 0, -0.28, 0);
-    group.add(pivot);
-    arms.push(pivot);
-  }
-  const left = arms[0];
-  const right = arms[1];
-
-  const head = kitMesh(group, new THREE.SphereGeometry(0.24, 16, 12), skin, 0, 1.86, 0);
-  const gear = new THREE.Group();
-  group.add(gear);
-  const id = unit.classId;
-  const glow = (color) => new THREE.MeshBasicMaterial({ color });
-
-  if (id === "warrior") {
-    kitMesh(gear, new THREE.SphereGeometry(0.16, 10, 8), metal, 0, 1.5, -0.42);
-    kitMesh(gear, new THREE.SphereGeometry(0.16, 10, 8), metal, 0, 1.5, 0.42);
-    kitMesh(gear, new THREE.CylinderGeometry(0.26, 0.28, 0.22, 10), metal, 0, 2.02, 0);
-    kitMesh(gear, new THREE.BoxGeometry(0.34, 0.08, 0.08), metal, 0.16, 1.9, 0);
-    kitMesh(right, new THREE.BoxGeometry(0.1, 0.07, 0.95), metal, 0.12, -0.42, 0.42);
-    kitMesh(left, new THREE.CylinderGeometry(0.2, 0.2, 0.08, 12), metal, 0.05, -0.32, -0.16, Math.PI / 2, 0, 0);
-  } else if (id === "mage") {
-    kitMesh(gear, new THREE.ConeGeometry(0.34, 0.7, 10), cloth, 0, 2.28, 0);
-    kitMesh(gear, new THREE.ConeGeometry(0.42, 0.9, 10), cloth, 0, 0.55, 0);
-    kitMesh(right, new THREE.CylinderGeometry(0.04, 0.05, 1.9, 6), wood, 0.1, -0.05, 0.55, 0.15, 0, 0.35);
-    kitMesh(right, new THREE.SphereGeometry(0.12, 10, 8), glow(0x8fd7ff), 0.42, 0.7, 0.85);
-  } else if (id === "hunter") {
-    kitMesh(gear, new THREE.SphereGeometry(0.28, 12, 10), dark, 0, 1.98, 0);
-    kitMesh(gear, new THREE.BoxGeometry(0.16, 0.42, 0.22), dark, -0.22, 1.25, 0);
-    kitMesh(left, new THREE.TorusGeometry(0.42, 0.035, 6, 14, Math.PI), wood, 0.05, -0.35, 0.28, 0.2, 0.4, 0.8);
-  } else if (id === "warlock") {
-    kitMesh(gear, new THREE.SphereGeometry(0.28, 12, 10), dark, 0, 1.96, 0);
-    kitMesh(gear, new THREE.ConeGeometry(0.08, 0.28, 6), dark, 0, 2.22, -0.16, 0.4, 0, 0);
-    kitMesh(gear, new THREE.ConeGeometry(0.08, 0.28, 6), dark, 0, 2.22, 0.16, -0.4, 0, 0);
-    kitMesh(right, new THREE.CylinderGeometry(0.04, 0.05, 1.9, 6), dark, 0.1, -0.05, 0.55, 0.15, 0, 0.35);
-    kitMesh(right, new THREE.SphereGeometry(0.13, 10, 8), glow(0x6dff9a), 0.42, 0.72, 0.88);
-  } else if (id === "druid") {
-    kitMesh(gear, new THREE.ConeGeometry(0.06, 0.42, 6), wood, 0, 2.18, -0.12, 0.5, 0, -0.4);
-    kitMesh(gear, new THREE.ConeGeometry(0.06, 0.42, 6), wood, 0, 2.18, 0.12, -0.5, 0, 0.4);
-    kitMesh(gear, new THREE.SphereGeometry(0.14, 8, 8), kitMat(0x7dff9a, 0.5, 0.02), 0, 1.5, -0.28);
-    kitMesh(right, new THREE.CylinderGeometry(0.045, 0.07, 1.85, 6), wood, 0.1, -0.05, 0.5, 0.2, 0, 0.4);
-  } else if (id === "rogue") {
-    kitMesh(gear, new THREE.SphereGeometry(0.27, 12, 10), dark, 0, 1.96, 0);
-    kitMesh(gear, new THREE.BoxGeometry(0.22, 0.06, 0.34), dark, 0.16, 1.82, 0);
-    kitMesh(right, new THREE.BoxGeometry(0.07, 0.05, 0.62), metal, 0.08, -0.48, 0.28, 0, 0, -0.4);
-    kitMesh(left, new THREE.BoxGeometry(0.06, 0.045, 0.52), metal, 0.08, -0.46, -0.24, 0, 0, 0.4);
-  } else if (id === "warden") {
-    kitMesh(gear, new THREE.BoxGeometry(0.08, 0.95, 0.55), cloth, -0.16, 1.25, 0);
-    kitMesh(right, new THREE.CylinderGeometry(0.035, 0.045, 1.25, 6), dark, 0.08, -0.1, 0.35, 0.35, 0, 0.2);
-    kitMesh(right, new THREE.SphereGeometry(0.14, 10, 8), glow(0xd8fff6), 0.22, 0.4, 0.55);
-  } else if (id === "binder") {
-    kitMesh(gear, new THREE.TorusGeometry(0.34, 0.035, 8, 18), metal, 0, 1.25, 0, 0, 0, Math.PI / 2);
-    kitMesh(gear, new THREE.TorusGeometry(0.28, 0.028, 8, 16), metal, 0, 0.95, 0, Math.PI / 3, 0, 0);
-    kitMesh(right, new THREE.TorusGeometry(0.24, 0.04, 6, 12, Math.PI * 1.25), metal, 0.28, -0.4, 0, 0, 0, -0.4);
-  } else if (id === "vow") {
-    kitMesh(gear, new THREE.TorusGeometry(0.32, 0.03, 8, 20), glow(0xf2a3c7), 0, 2.22, 0, Math.PI / 2.3, 0, 0);
-    kitMesh(gear, new THREE.BoxGeometry(0.1, 0.85, 0.42), cloth, 0, 1.2, 0);
-  } else if (id === "duelist") {
-    kitMesh(gear, new THREE.BoxGeometry(0.2, 0.08, 0.36), dark, 0.12, 1.98, 0);
-    kitMesh(gear, new THREE.ConeGeometry(0.06, 0.28, 5), kitMat(0xf0d48a, 0.45, 0.1), 0, 2.16, -0.12, 0.8, 0, 0);
-    kitMesh(right, new THREE.BoxGeometry(0.05, 0.035, 1.15), metal, 0.1, -0.4, 0.35);
-  } else {
-    kitMesh(gear, new THREE.BoxGeometry(0.12, 0.9, 0.46), kitMat(0xf0d48a, 0.55, 0.12), 0.08, 1.28, 0);
-    kitMesh(gear, new THREE.TorusGeometry(0.2, 0.025, 6, 16), metal, 0, 2.08, 0, Math.PI / 2, 0, 0);
-  }
-
   const ice = new THREE.Mesh(
-    new THREE.SphereGeometry(1.2, 18, 14),
-    new THREE.MeshBasicMaterial({ color: 0xc6f4ff, transparent: true, opacity: 0.38 })
+    new THREE.SphereGeometry(1.15, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xb7e4ff, transparent: true, opacity: 0.28, depthWrite: false })
   );
-  ice.position.y = 1.25;
+  ice.position.y = 1.15;
   ice.visible = false;
   group.add(ice);
 
   const shield = new THREE.Mesh(
-    new THREE.SphereGeometry(1.15, 12, 10),
-    new THREE.MeshBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.45, wireframe: true })
+    new THREE.SphereGeometry(1.22, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xf0d48a, transparent: true, opacity: 0.22, depthWrite: false })
   );
-  shield.position.y = 1.25;
+  shield.position.y = 1.15;
   shield.visible = false;
   group.add(shield);
 
   const deter = new THREE.Mesh(
-    new THREE.SphereGeometry(1.22, 12, 10),
-    new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.7, wireframe: true })
+    new THREE.SphereGeometry(1.28, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.16, depthWrite: false })
   );
-  deter.position.y = 1.25;
+  deter.position.y = 1.15;
   deter.visible = false;
   group.add(deter);
 
   const reflect = new THREE.Mesh(
-    new THREE.SphereGeometry(1.18, 12, 10),
-    new THREE.MeshBasicMaterial({ color: 0x9ee7ff, transparent: true, opacity: 0.55, wireframe: true })
+    new THREE.SphereGeometry(1.34, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xc9b6ff, transparent: true, opacity: 0.2, depthWrite: false })
   );
-  reflect.position.y = 1.25;
+  reflect.position.y = 1.15;
   reflect.visible = false;
   group.add(reflect);
 
@@ -232,14 +323,20 @@ function makeFighter(unit) {
     new THREE.SphereGeometry(0.14, 8, 8),
     new THREE.MeshBasicMaterial({ color: 0xf0d48a })
   );
-  castOrb.position.set(0.55, 1.35, 0);
+  castOrb.position.set(0.7, 1.2, 0);
   castOrb.visible = false;
   group.add(castOrb);
 
   const label = makeLabelSprite();
   group.add(label);
 
-  group.userData.parts = { cloth, skin, dark, metal, base: classColor.clone(), ring, select, ice, shield, deter, reflect, ember, castOrb, label, head, legs, arms, gear, blob };
+  group.userData.parts = {
+    actor, sheep, material, attack: kit.attack,
+    tint: material ? material.color.clone() : new THREE.Color(kit.tint),
+    ring, select, ice, shield, deter, reflect, ember, castOrb, label, blob,
+  };
+  group.userData.swing = unit.swing;
+  group.userData.hp = unit.hp;
   return group;
 }
 
@@ -254,25 +351,45 @@ function updateFighter(group, unit, match) {
   const moved = group.userData.px != null && Math.hypot(unit.x - group.userData.px, unit.y - group.userData.pz) > 0.02;
   group.userData.px = unit.x;
   group.userData.pz = unit.y;
-  const bob = !dead && !feign && moved && Math.abs(lift - floor) < 0.08 ? Math.abs(Math.sin(match.time * 11)) * 0.06 : 0;
-  group.position.set(unit.x, (dead ? 0.35 : 0) + lift + bob + (cyclone ? 1.35 : 0), unit.y);
-  group.rotation.set(0, cyclone ? match.time * 8 : -unit.facing, dead ? 1.25 : 0);
-  group.scale.set(sheep ? 1.2 : feign ? 1.15 : 1, dead ? 1 : sheep ? 0.7 : feign ? 0.38 : 1, sheep ? 1.2 : feign ? 1.15 : 1);
+  group.position.set(unit.x, lift + (cyclone ? 1.35 : 0), unit.y);
+  group.rotation.set(0, cyclone ? match.time * 8 : -unit.facing, 0);
+  const concealed = window.Arena.veiledFromViewer && Arena.veiledFromViewer(unit);
+  group.visible = !concealed;
+  if (concealed) return;
+  if (parts.actor) {
+    parts.actor.visible = !sheep;
+    parts.sheep.visible = sheep && !dead;
+  }
   parts.blob.position.y = floor + 0.02 - group.position.y;
   parts.ring.position.y = floor + 0.05 - group.position.y;
   parts.select.position.y = floor + 0.07 - group.position.y;
 
-  const swing = !dead && moved ? Math.sin(match.time * 11) * 0.55 : 0;
-  parts.legs[0].rotation.z = swing;
-  parts.legs[1].rotation.z = -swing;
-  if (parts.arms) {
-    parts.arms[0].rotation.z = -swing * 0.8;
-    parts.arms[1].rotation.z = swing * 0.8;
-    const hideKit = sheep;
-    parts.arms[0].visible = !hideKit && !dead;
-    parts.arms[1].visible = !hideKit && !dead;
+  const now = match.time;
+  const dt = Math.min(0.05, Math.max(0, now - (group.userData.lastTime ?? now)));
+  group.userData.lastTime = now;
+  if (group.userData.mixer) group.userData.mixer.update(dt);
+
+  const current = group.userData.actions && group.userData.actions[group.userData.clip];
+  const busy = !!(group.userData.once && current && current.isRunning());
+  const swingUp = group.userData.swing != null && unit.swing > group.userData.swing + 0.15;
+  group.userData.swing = unit.swing;
+  const casting = !!unit.cast;
+  const startedCast = casting && !group.userData.wasCast;
+  group.userData.wasCast = casting;
+  const airborne = !dead && !feign && Math.abs(lift - floor) > 0.35;
+  if (group.userData.actions) {
+    if (dead || feign) fadeCast(group, "death", true);
+    else if (swingUp) fadeCast(group, parts.attack || "melee", true, true);
+    else if (startedCast) fadeCast(group, unit.cast.channel ? "channel" : "cast", !unit.cast.channel, true);
+    else if (casting && unit.cast.channel) {
+      if (group.userData.clip !== "channel") fadeCast(group, "channel", false, true);
+    } else if (!busy) {
+      if (airborne) {
+        if (group.userData.clip !== "jump") fadeCast(group, "jump", true);
+      } else if (moved) fadeCast(group, "run", false);
+      else fadeCast(group, "idle", false);
+    }
   }
-  if (parts.gear) parts.gear.visible = !sheep;
 
   parts.select.visible = !dead && match.player.targetId === unit.id;
   parts.ice.visible = !dead && unit.auras.some((a) => a.ice);
@@ -307,8 +424,10 @@ function updateFighter(group, unit, match) {
     const heavy = unit.cast.ability.id === "pyroblast" || unit.cast.ability.id === "aimedShot";
     parts.castOrb.scale.setScalar((heavy ? 9 : 5.5) * (1 + Math.sin(match.time * 14) * 0.22));
   }
-  parts.head.visible = !sheep && !dead;
-  parts.cloth.color.copy(dead ? new THREE.Color("#6a645c") : feign ? new THREE.Color("#8d887f") : sheep ? new THREE.Color("#e7eef2") : cyclone ? new THREE.Color("#d7e7a0") : parts.base);
+  if (parts.material) {
+    const tint = dead || feign ? new THREE.Color("#8a847c") : cyclone ? new THREE.Color("#d7e7a0") : parts.tint;
+    parts.material.color.copy(tint);
+  }
   const stealthFade = !dead && unit.auras.some((a) => a.stealth);
   const skip = new Set([parts.select, parts.blob, parts.ice, parts.shield, parts.deter, parts.reflect, parts.ember, parts.castOrb]);
   group.traverse((obj) => {
@@ -325,8 +444,8 @@ function updateFighter(group, unit, match) {
     obj.material.needsUpdate = true;
     obj.castShadow = ghost >= 1;
   });
-  parts.label.position.y = feign ? 8.8 : 3.35;
-  parts.label.scale.set(3.6, feign ? 2.66 : 1.01, 1);
+  parts.label.position.y = sheep ? 1.45 : 2.8;
+  parts.label.scale.set(3.6, 1.01, 1);
   parts.label.visible = !dead;
   if (!dead) paintLabel(parts.label, unit);
   parts.ring.visible = !dead;
@@ -838,6 +957,11 @@ function syncFloaters(match) {
       sprite.visible = false;
       return;
     }
+    const floaterUnit = floater.unitId != null && match.units.find((u) => u.id === floater.unitId);
+    if (floaterUnit && window.Arena.veiledFromViewer && Arena.veiledFromViewer(floaterUnit)) {
+      sprite.visible = false;
+      return;
+    }
     sprite.visible = true;
     const key = floater.text + floater.color;
     if (sprite.userData.key !== key) {
@@ -915,7 +1039,8 @@ function render(match, dt) {
   }
 
   const target = match.units.find((u) => u.id === match.player.targetId);
-  const showLine = target && target.hp > 0 && match.player.hp > 0 && target !== match.player;
+  const concealedTarget = target && window.Arena.veiledFromViewer && Arena.veiledFromViewer(target);
+  const showLine = target && target.hp > 0 && match.player.hp > 0 && target !== match.player && !concealedTarget;
   gfx.targetLine.visible = false;
   gfx.dashLine.visible = false;
   if (showLine) {
@@ -959,58 +1084,104 @@ function aimCylinder(mesh, ax, ay, az, bx, by, bz) {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.multiplyScalar(1 / len));
 }
 
+function sparkTexture() {
+  if (sparkTexture.tex) return sparkTexture.tex;
+  sparkTexture.tex = paintTexture(64, 64, (ctx) => {
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.22, "rgba(255,255,255,0.9)");
+    g.addColorStop(0.5, "rgba(255,255,255,0.28)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+  });
+  return sparkTexture.tex;
+}
+
+function fxSpark(color, size) {
+  const spark = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: sparkTexture(),
+    color,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  }));
+  spark.scale.setScalar(size || 0.8);
+  return spark;
+}
+
+function addMotes(group, color, count, size) {
+  const motes = [];
+  for (let i = 0; i < count; i++) {
+    const mote = fxSpark(color, size);
+    group.add(mote);
+    motes.push(mote);
+  }
+  return motes;
+}
+
 function makeFxMesh(effect) {
   const color = new THREE.Color(effect.color || "#f0d48a");
   const group = new THREE.Group();
   group.userData.kind = effect.kind;
   group.renderOrder = 4;
   if (effect.kind === "ring") {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 32), fxMat(color, 0.22, true));
     const outer = new THREE.Mesh(new THREE.RingGeometry(0.78, 1, 40), fxMat(color, 0.85, true));
     const inner = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 40), fxMat(0xffffff, 0.95, false));
-    outer.rotation.x = -Math.PI / 2;
-    inner.rotation.x = -Math.PI / 2;
+    disc.rotation.x = outer.rotation.x = inner.rotation.x = -Math.PI / 2;
     inner.material.color.copy(color).lerp(new THREE.Color("#ffffff"), 0.45);
-    group.add(outer, inner);
-    group.userData.parts = { outer, inner };
+    const motes = addMotes(group, color, 8, 0.7);
+    group.add(disc, outer, inner);
+    group.userData.parts = { disc, outer, inner, motes };
     return group;
   }
   if (effect.kind === "slash") {
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.22, 8, 18, Math.PI * 0.95), fxMat(color, 1, false));
-    const glow = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.48, 8, 18, Math.PI * 0.95), fxMat(color, 0.45, true));
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), fxMat(0xffffff, 0.9, true));
-    group.add(glow, arc, flash);
-    group.userData.parts = { arc, glow, flash };
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.16, 8, 22, Math.PI * 1.15), fxMat(color, 1, false));
+    const edge = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.07, 6, 18, Math.PI * 0.8), fxMat(0xffffff, 0.9, true));
+    const glow = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.46, 8, 18, Math.PI * 1.15), fxMat(color, 0.4, true));
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), fxMat(0xffffff, 0.9, true));
+    edge.material.color.copy(color).lerp(new THREE.Color("#ffffff"), 0.55);
+    const motes = addMotes(group, color, 7, 0.55);
+    group.add(glow, arc, edge, flash);
+    group.userData.parts = { arc, edge, glow, flash, motes };
     return group;
   }
   if (effect.kind === "beam") {
-    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1, 8), fxMat(color, 0.95, false));
-    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1, 8), fxMat(color, 0.4, true));
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1, 8), fxMat(color, 0.95, false));
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1, 8), fxMat(color, 0.35, true));
     core.userData.girth = 1;
     glow.userData.girth = 1;
+    const motes = addMotes(group, color, 6, 0.65);
     group.add(glow, core);
-    group.userData.parts = { core, glow };
+    group.userData.parts = { core, glow, motes };
     return group;
   }
   if (effect.kind === "bolt") {
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.72, 12, 10), fxMat(color, 1, false));
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(1.15, 12, 10), fxMat(color, 0.28, true));
-    const trail = [0, 1, 2, 3].map((i) => {
-      const bit = new THREE.Mesh(new THREE.SphereGeometry(0.42 - i * 0.06, 8, 6), fxMat(color, 0.55, true));
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), fxMat(0xffffff, 1, true));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 10), fxMat(color, 0.55, true));
+    core.material.color.copy(color).lerp(new THREE.Color("#ffffff"), 0.65);
+    const trail = [0, 1, 2, 3, 4, 5].map((i) => {
+      const bit = fxSpark(color, 1.15 - i * 0.12);
       group.add(bit);
       return bit;
     });
-    const impact = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 28), fxMat(color, 0.9, true));
-    impact.rotation.x = -Math.PI / 2;
-    group.add(glow, core, impact);
-    group.userData.parts = { core, glow, trail, impact };
+    const impact = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.82, 28), fxMat(color, 0.95, true));
+    const burst = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.4, 20), fxMat(0xffffff, 0.8, true));
+    impact.rotation.x = burst.rotation.x = -Math.PI / 2;
+    group.add(glow, core, impact, burst);
+    group.userData.parts = { core, glow, trail, impact, burst };
     return group;
   }
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.95, 14, 12), fxMat(color, 0.95, false));
-  const glow = new THREE.Mesh(new THREE.SphereGeometry(1.55, 14, 12), fxMat(color, 0.32, true));
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 32), fxMat(color, 0.8, true));
-  ring.rotation.x = -Math.PI / 2;
-  group.add(glow, core, ring);
-  group.userData.parts = { core, glow, ring };
+  const nova = effect.kind === "nova";
+  const core = new THREE.Mesh(new THREE.SphereGeometry(nova ? 0.7 : 0.85, 14, 12), fxMat(color, 0.95, false));
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(nova ? 1.2 : 1.45, 14, 12), fxMat(color, 0.32, true));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 36), fxMat(color, 0.85, true));
+  const shock = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.08, 36), fxMat(color, 0.55, true));
+  ring.rotation.x = shock.rotation.x = -Math.PI / 2;
+  const motes = addMotes(group, color, nova ? 14 : 8, nova ? 0.9 : 0.6);
+  group.add(glow, core, ring, shock);
+  group.userData.parts = { core, glow, ring, shock, motes };
   return group;
 }
 
@@ -1038,60 +1209,103 @@ function placeFx(group, effect) {
       parts.glow.lookAt(effect.x2, effect.h2 || 1.2, effect.y2);
     }
     parts.trail.forEach((bit, i) => {
-      const q = at(Math.max(0, head - (i + 1) * 0.07));
+      const q = at(Math.max(0, head - (i + 1) * 0.055));
       bit.position.set(q.x, q.y, q.z);
-      bit.scale.setScalar(size * (1 - i * 0.16));
-      bit.material.opacity = 0.5 * fade * (1 - i * 0.18);
+      bit.scale.setScalar(size * (1.35 - i * 0.16));
+      bit.material.opacity = 0.85 * fade * (1 - i * 0.12);
     });
     const hit = at(1);
-    parts.impact.position.set(hit.x, 0.16, hit.z);
-    parts.impact.visible = t > 0.72;
-    parts.impact.scale.setScalar(size * (1.2 + (t - 0.72) * 8));
-    parts.impact.material.opacity = t > 0.72 ? 0.9 * (1 - (t - 0.72) / 0.28) : 0;
+    parts.impact.position.set(hit.x, (effect.h2 || 0.2) + 0.08, hit.z);
+    parts.burst.position.copy(parts.impact.position);
+    const landed = t > 0.72;
+    parts.impact.visible = parts.burst.visible = landed;
+    parts.impact.scale.setScalar(size * (1.1 + (t - 0.72) * 9));
+    parts.burst.scale.setScalar(size * (0.6 + (t - 0.72) * 5));
+    parts.impact.material.opacity = landed ? 0.9 * (1 - (t - 0.72) / 0.28) : 0;
+    parts.burst.material.opacity = landed ? 0.7 * (1 - (t - 0.72) / 0.28) : 0;
     parts.core.material.opacity = fade;
-    parts.glow.material.opacity = 0.5 * fade;
+    parts.glow.material.opacity = 0.7 * fade;
     return;
   }
   if (effect.kind === "beam") {
+    const pulse = 0.82 + Math.sin(t * 22) * 0.22;
+    parts.core.userData.girth = pulse;
+    parts.glow.userData.girth = pulse * 1.7;
     aimCylinder(parts.core, effect.x, effect.h || 0.8, effect.y, effect.x2, effect.h2 || 0.8, effect.y2);
     aimCylinder(parts.glow, effect.x, effect.h || 0.8, effect.y, effect.x2, effect.h2 || 0.8, effect.y2);
+    parts.motes.forEach((mote, i) => {
+      const u = (i + 0.5) / parts.motes.length;
+      mote.position.set(
+        effect.x + (effect.x2 - effect.x) * u,
+        (effect.h || 0.8) + ((effect.h2 || effect.h || 0.8) - (effect.h || 0.8)) * u + Math.sin(t * 16 + i) * 0.15,
+        effect.y + (effect.y2 - effect.y) * u
+      );
+      mote.scale.setScalar(0.55 + (i % 2) * 0.25);
+      mote.material.opacity = 0.75 * fade;
+    });
     parts.core.material.opacity = 0.95 * fade;
-    parts.glow.material.opacity = 0.45 * fade;
+    parts.glow.material.opacity = 0.4 * fade;
     return;
   }
   if (effect.kind === "slash") {
     group.position.set(effect.x2, effect.h || 1.4, effect.y2);
     const yaw = -Math.atan2(effect.y2 - effect.y, effect.x2 - effect.x);
-    group.rotation.set(0.4, yaw, 0.15);
-    const s = size * (1.15 + t * 0.55);
+    group.rotation.set(0.35, yaw, 0.1);
+    const s = size * (1.05 + t * 0.7);
     parts.arc.scale.setScalar(s);
+    parts.edge.scale.setScalar(s * 0.92);
     parts.glow.scale.setScalar(s * 1.08);
-    parts.arc.rotation.z = t * 0.8;
-    parts.glow.rotation.z = t * 0.8;
-    parts.flash.scale.setScalar(size * (1.6 - t));
+    parts.arc.rotation.z = parts.edge.rotation.z = parts.glow.rotation.z = -0.6 + t * 1.5;
+    parts.flash.scale.setScalar(size * (1.5 - t));
     parts.flash.material.opacity = 0.85 * (1 - t);
+    parts.motes.forEach((mote, i) => {
+      const ang = -0.4 + t * 1.6 + i * 0.22;
+      const rad = s * (0.7 + (i % 3) * 0.18);
+      mote.position.set(Math.cos(ang) * rad, Math.sin(i + t * 8) * 0.25, Math.sin(ang) * rad * 0.35);
+      mote.material.opacity = 0.8 * fade;
+    });
     parts.arc.material.opacity = fade;
-    parts.glow.material.opacity = 0.45 * fade;
+    parts.edge.material.opacity = 0.9 * fade;
+    parts.glow.material.opacity = 0.4 * fade;
     return;
   }
   if (effect.kind === "ring") {
     group.position.set(effect.x, effect.h || 0.16, effect.y);
-    const s = size * (0.72 + t * 0.48);
+    const s = size * (0.55 + t * 0.7);
+    parts.disc.scale.setScalar(s * 0.96);
     parts.outer.scale.setScalar(s);
-    parts.inner.scale.setScalar(s * 0.92);
-    parts.outer.material.opacity = 0.8 * fade;
+    parts.inner.scale.setScalar(s * 0.9);
+    parts.disc.material.opacity = 0.28 * fade;
+    parts.outer.material.opacity = 0.85 * fade;
     parts.inner.material.opacity = 0.95 * fade;
+    parts.motes.forEach((mote, i) => {
+      const ang = (i / parts.motes.length) * Math.PI * 2;
+      mote.position.set(Math.cos(ang) * s * 0.85, 0.25 + t * 1.4 + (i % 3) * 0.15, Math.sin(ang) * s * 0.85);
+      mote.scale.setScalar(0.45 + (i % 2) * 0.3);
+      mote.material.opacity = 0.75 * fade;
+    });
     return;
   }
+  const nova = effect.kind === "nova";
   group.position.set(effect.x, effect.h || 1.3, effect.y);
-  const s = size * (0.7 + t * 1.15);
-  parts.core.scale.setScalar(s);
-  parts.glow.scale.setScalar(s * 1.25);
-  parts.ring.position.y = -((effect.h || 1.3) - 0.16);
-  parts.ring.scale.setScalar(size * (1.4 + t * 2.4));
-  parts.core.material.opacity = 0.95 * fade;
-  parts.glow.material.opacity = 0.42 * fade;
-  parts.ring.material.opacity = 0.75 * (1 - t);
+  const s = size * (nova ? 0.25 + t * 1.05 : 0.55 + t * 0.9);
+  parts.core.scale.setScalar(nova ? size * (0.35 + (1 - t) * 0.4) : s);
+  parts.glow.scale.setScalar((nova ? size * 0.45 : s) * 1.3);
+  const ground = -((effect.h || 1.3) - 0.16);
+  parts.ring.position.y = parts.shock.position.y = ground;
+  parts.ring.scale.setScalar(size * (nova ? 0.2 + t * 1.15 : 0.8 + t * 1.6));
+  parts.shock.scale.setScalar(size * (nova ? t * 1.35 : 0.4 + t * 2.2));
+  parts.motes.forEach((mote, i) => {
+    const ang = (i / parts.motes.length) * Math.PI * 2 + t * (nova ? 0.4 : 2.2);
+    const rad = size * (nova ? 0.15 + t * 0.95 : 0.3 + t * 1.1);
+    mote.position.set(Math.cos(ang) * rad, (nova ? 0.4 : 0.2) + Math.sin(i * 1.7 + t * 7) * 0.35, Math.sin(ang) * rad);
+    mote.scale.setScalar((nova ? 1.1 : 0.7) * (1 - t * 0.35));
+    mote.material.opacity = 0.85 * fade;
+  });
+  parts.core.material.opacity = (nova ? 0.7 : 0.95) * fade;
+  parts.glow.material.opacity = 0.4 * fade;
+  parts.ring.material.opacity = 0.8 * (1 - t * 0.35);
+  parts.shock.material.opacity = 0.45 * (1 - t);
 }
 
 function syncFx(match) {
@@ -1112,6 +1326,9 @@ function syncFx(match) {
       gfx.scene.add(mesh);
       gfx.fxMeshes.set(key, mesh);
     }
+    const concealedFx = effect.conceal && match.player && effect.conceal !== match.player.team;
+    mesh.visible = !concealedFx;
+    if (concealedFx) return;
     placeFx(mesh, effect);
   });
   for (const [id, mesh] of gfx.fxMeshes) {
@@ -1149,7 +1366,8 @@ function syncCastLines(match) {
       return;
     }
     const target = match.units.find((u) => u.id === unit.cast.targetId);
-    if (!target || target === unit) {
+    const hiddenEnd = window.Arena.veiledFromViewer && (Arena.veiledFromViewer(unit) || (target && Arena.veiledFromViewer(target)));
+    if (!target || target === unit || hiddenEnd) {
       beam.visible = false;
       return;
     }
