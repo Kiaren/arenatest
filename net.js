@@ -49,6 +49,7 @@
           if (gen !== generation) return;
           let msg;
           try { msg = JSON.parse(ev.data); } catch (err) { return; }
+          if (msg.t === "party" && msg.id) net.id = msg.id;
           if (msg.id && (msg.t === "hello" || msg.t === "created" || msg.t === "joined" || msg.t === "queue" || msg.t === "msg")) {
             net.id = msg.id;
             if (msg.hostId) net.hostId = msg.hostId;
@@ -67,7 +68,12 @@
     join(code, name) { this._send({ t: "join", code, name }); },
     send(data) { this._send({ t: "relay", data }); },
     queue(size, classId, name) { this._send({ t: "queue", size, classId, name }); },
+    queueBots(classId, name) { this._send({ t: "queue-bots", classId, name }); },
     leaveQueue() { this._send({ t: "leave-queue" }); },
+    partyCreate(name, classId) { this._send({ t: "party-create", name, classId }); },
+    partyJoin(code, name, classId) { this._send({ t: "party-join", code, name, classId }); },
+    partyLeave() { this._send({ t: "party-leave" }); },
+    partyClass(classId, name) { this._send({ t: "party-class", classId, name }); },
     play(data) { this._send({ t: "play", data }); },
     _send(obj) {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));

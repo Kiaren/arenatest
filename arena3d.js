@@ -1054,7 +1054,6 @@ function render(match, dt) {
   syncLanterns(match);
   syncFloaters(match);
   syncFx(match);
-  syncCastLines(match);
   gfx.renderer.render(gfx.scene, gfx.camera);
 }
 
@@ -1120,6 +1119,189 @@ function addMotes(group, color, count, size) {
   return motes;
 }
 
+function makeBoltHead(style, color) {
+  const head = new THREE.Group();
+  const tint = new THREE.Color(color);
+  if (style === "frost") {
+    const ice = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.45, 6), fxMat(0xc5ecff, 0.96, false));
+    const back = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.7, 6), fxMat(0xf4fbff, 0.9, false));
+    back.rotation.x = Math.PI;
+    back.position.y = -0.08;
+    head.add(ice, back);
+    for (let i = 0; i < 4; i++) {
+      const shard = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.7, 5), fxMat(0xe7f6ff, 0.95, false));
+      const ang = (i / 4) * Math.PI * 2;
+      const outward = new THREE.Vector3(Math.cos(ang), 0.15, Math.sin(ang)).normalize();
+      shard.position.copy(outward).multiplyScalar(0.38);
+      shard.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
+      head.add(shard);
+    }
+  } else if (style === "pyro" || style === "fire") {
+    const big = style === "pyro";
+    const hot = new THREE.Mesh(new THREE.SphereGeometry(big ? 0.48 : 0.32, 14, 12), fxMat(0xfff6d0, 1, true));
+    const mid = new THREE.Mesh(new THREE.SphereGeometry(big ? 0.74 : 0.5, 14, 12), fxMat(0xff8a1e, 0.92, true));
+    const outer = new THREE.Mesh(new THREE.SphereGeometry(big ? 1.08 : 0.72, 14, 12), fxMat(tint, 0.4, true));
+    const tongues = [];
+    const n = big ? 8 : 5;
+    for (let i = 0; i < n; i++) {
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(big ? 0.28 : 0.16, big ? 0.9 : 0.55, 6), fxMat(i % 2 ? 0xff3d0e : 0xffd36a, 0.84, true));
+      const ang = (i / n) * Math.PI * 2;
+      const outward = new THREE.Vector3(Math.cos(ang), big ? 0.22 : 0.45, Math.sin(ang)).normalize();
+      flame.position.copy(outward).multiplyScalar(big ? 0.78 : 0.48);
+      flame.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
+      tongues.push(flame);
+      head.add(flame);
+    }
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(big ? 0.58 : 0.32, big ? 1.6 : 0.9, 8), fxMat(0xff4a12, 0.72, true));
+    tail.position.y = big ? -1.2 : -0.72;
+    tail.rotation.x = Math.PI;
+    tongues.push(tail);
+    head.add(outer, mid, hot, tail);
+    head.userData.tongues = tongues;
+  } else if (style === "arrow") {
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.55, 6), fxMat(0xc4a36a, 1, false));
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.55, 7), fxMat(tint, 1, false));
+    tip.position.y = 1.02;
+    const fletchA = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.06), fxMat(0xf4efe4, 0.96, false));
+    const fletchB = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.36, 0.62), fxMat(0xf4efe4, 0.96, false));
+    fletchA.position.y = fletchB.position.y = -0.7;
+    head.add(shaft, tip, fletchA, fletchB);
+  } else if (style === "shadow") {
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 0), fxMat(0x14081f, 0.96, false));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 10), fxMat(tint, 0.42, true));
+    head.add(glow, core);
+    for (let i = 0; i < 5; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.52, 5), fxMat(tint, 0.85, true));
+      const ang = (i / 5) * Math.PI * 2;
+      const outward = new THREE.Vector3(Math.cos(ang), Math.sin(i * 2) * 0.4, Math.sin(ang)).normalize();
+      spike.position.copy(outward).multiplyScalar(0.78);
+      spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
+      head.add(spike);
+    }
+    head.userData.spin = [core];
+  } else if (style === "mind") {
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), fxMat(0xf6ecff, 1, true));
+    const ringA = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.07, 8, 24), fxMat(tint, 0.92, true));
+    const ringB = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.05, 8, 22), fxMat(0xffffff, 0.8, true));
+    ringA.rotation.x = Math.PI / 2;
+    ringB.rotation.z = Math.PI / 2;
+    head.add(ringA, ringB, core);
+    head.userData.spin = [ringA, ringB];
+  } else if (style === "nature") {
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), fxMat(0xe9ffb4, 0.95, true));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), fxMat(tint, 0.35, true));
+    head.add(glow, core);
+    for (let i = 0; i < 4; i++) {
+      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.55, 4), fxMat(0x86c84e, 0.92, false));
+      const ang = (i / 4) * Math.PI * 2;
+      const outward = new THREE.Vector3(Math.cos(ang), 0.25, Math.sin(ang)).normalize();
+      leaf.position.copy(outward).multiplyScalar(0.4);
+      leaf.scale.z = 0.35;
+      leaf.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
+      head.add(leaf);
+    }
+  } else if (style === "holy") {
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), fxMat(0xfff6d2, 1, true));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.58, 12, 10), fxMat(tint, 0.42, true));
+    head.add(glow, core);
+    for (let i = 0; i < 4; i++) {
+      const ray = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.75, 0.08), fxMat(0xfff6d2, 0.85, true));
+      const ang = (i / 4) * Math.PI;
+      ray.rotation.z = ang;
+      head.add(ray);
+    }
+    head.userData.spin = [head.children[head.children.length - 1]];
+  } else if (style === "fear") {
+    const wisps = [];
+    for (let i = 0; i < 6; i++) {
+      const wisp = fxSpark(tint, 1.2);
+      wisps.push(wisp);
+      head.add(wisp);
+    }
+    head.userData.wisps = wisps;
+  } else if (style === "chain") {
+    for (let i = 0; i < 5; i++) {
+      const link = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.045, 6, 14), fxMat(0xd9d3c4, 0.96, false));
+      link.position.y = -0.72 + i * 0.34;
+      link.rotation.y = i % 2 ? Math.PI / 2 : 0;
+      head.add(link);
+    }
+  } else if (style === "lash") {
+    const whip = new THREE.Mesh(new THREE.ConeGeometry(0.12, 1.55, 5), fxMat(tint, 0.95, true));
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), fxMat(0xfff1f3, 0.95, true));
+    tip.position.y = 0.82;
+    head.add(whip, tip);
+  } else if (style === "barb") {
+    for (let i = 0; i < 3; i++) {
+      const barb = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.75, 5), fxMat(tint, 0.96, false));
+      barb.position.set((i - 1) * 0.24, 0, 0);
+      barb.rotation.z = (i - 1) * 0.4;
+      head.add(barb);
+    }
+  } else if (style === "siphon") {
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), fxMat(0xdfffd4, 0.95, true));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.46, 10, 8), fxMat(tint, 0.4, true));
+    head.add(glow, core);
+  } else {
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), fxMat(0xffffff, 1, true));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 10), fxMat(tint, 0.55, true));
+    core.material.color.copy(tint).lerp(new THREE.Color("#ffffff"), 0.65);
+    head.add(glow, core);
+  }
+  return head;
+}
+
+function makeImpact(style, color) {
+  const impact = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.88, 28), fxMat(color, 0.95, true));
+  ring.rotation.x = -Math.PI / 2;
+  impact.add(ring);
+  impact.userData.ring = ring;
+  const bits = [];
+  if (style === "frost") {
+    for (let i = 0; i < 6; i++) {
+      const chip = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.46, 5), fxMat(0xe8fbff, 0.92, true));
+      chip.userData.ang = (i / 6) * Math.PI * 2;
+      bits.push(chip);
+      impact.add(chip);
+    }
+  } else if (style === "pyro" || style === "fire") {
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(style === "pyro" ? 0.85 : 0.5, 10, 8), fxMat(0xfff1c4, 0.95, true));
+    impact.add(flash);
+    impact.userData.flash = flash;
+  }
+  impact.userData.bits = bits;
+  return impact;
+}
+
+function burstExtras(style, color) {
+  const extras = [];
+  const tint = new THREE.Color(color);
+  if (style === "fire") {
+    for (let i = 0; i < 6; i++) {
+      extras.push(new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.75, 6), fxMat(i % 2 ? 0xff3d0e : 0xffd36a, 0.86, true)));
+    }
+  } else if (style === "frost") {
+    for (let i = 0; i < 6; i++) extras.push(new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 5), fxMat(0xe7f7ff, 0.92, false)));
+  } else if (style === "nature") {
+    for (let i = 0; i < 5; i++) {
+      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 4), fxMat(0x86c84e, 0.9, false));
+      leaf.scale.z = 0.35;
+      extras.push(leaf);
+    }
+  } else if (style === "holy" || style === "heal") {
+    const barA = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), fxMat(style === "heal" ? 0xf4fff6 : 0xfff6d2, 0.9, true));
+    const barB = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.12), fxMat(style === "heal" ? 0xf4fff6 : 0xfff6d2, 0.9, true));
+    extras.push(barA, barB);
+  } else if (style === "arcane") {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.06, 8, 24), fxMat(tint, 0.9, true));
+    extras.push(ring);
+  } else if (style === "shadow") {
+    for (let i = 0; i < 4; i++) extras.push(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.48, 5), fxMat(tint, 0.8, true)));
+  }
+  return extras;
+}
+
 function makeFxMesh(effect) {
   const color = new THREE.Color(effect.color || "#f0d48a");
   const group = new THREE.Group();
@@ -1132,8 +1314,21 @@ function makeFxMesh(effect) {
     disc.rotation.x = outer.rotation.x = inner.rotation.x = -Math.PI / 2;
     inner.material.color.copy(color).lerp(new THREE.Color("#ffffff"), 0.45);
     const motes = addMotes(group, color, 8, 0.7);
+    const spikes = [];
+    if (effect.style === "frost" || effect.style === "nature" || effect.style === "fire") {
+      const count = effect.style === "frost" ? 10 : 8;
+      for (let i = 0; i < count; i++) {
+        const spike = new THREE.Mesh(
+          new THREE.ConeGeometry(effect.style === "nature" ? 0.16 : 0.1, effect.style === "fire" ? 0.7 : 0.5, 5),
+          fxMat(effect.style === "nature" ? 0x86c84e : color, 0.9, effect.style !== "nature")
+        );
+        if (effect.style === "nature") spike.scale.z = 0.4;
+        spikes.push(spike);
+        group.add(spike);
+      }
+    }
     group.add(disc, outer, inner);
-    group.userData.parts = { disc, outer, inner, motes };
+    group.userData.parts = { disc, outer, inner, motes, spikes };
     return group;
   }
   if (effect.kind === "slash") {
@@ -1142,35 +1337,30 @@ function makeFxMesh(effect) {
     const glow = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.46, 8, 18, Math.PI * 1.15), fxMat(color, 0.4, true));
     const flash = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), fxMat(0xffffff, 0.9, true));
     edge.material.color.copy(color).lerp(new THREE.Color("#ffffff"), 0.55);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.08, 0.28), fxMat(0xf7f4ee, 0.96, false));
     const motes = addMotes(group, color, 7, 0.55);
-    group.add(glow, arc, edge, flash);
-    group.userData.parts = { arc, edge, glow, flash, motes };
+    group.add(glow, arc, edge, flash, blade);
+    group.userData.parts = { arc, edge, glow, flash, blade, motes };
     return group;
   }
-  if (effect.kind === "beam") {
-    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1, 8), fxMat(color, 0.95, false));
-    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1, 8), fxMat(color, 0.35, true));
-    core.userData.girth = 1;
-    glow.userData.girth = 1;
-    const motes = addMotes(group, color, 6, 0.65);
-    group.add(glow, core);
-    group.userData.parts = { core, glow, motes };
+  if (effect.kind === "trail" || effect.kind === "beam") {
+    const motes = addMotes(group, color, 10, 0.85);
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), fxMat(color, 0.4, true));
+    group.add(puff);
+    group.userData.parts = { motes, puff };
     return group;
   }
   if (effect.kind === "bolt") {
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), fxMat(0xffffff, 1, true));
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 10), fxMat(color, 0.55, true));
-    core.material.color.copy(color).lerp(new THREE.Color("#ffffff"), 0.65);
-    const trail = [0, 1, 2, 3, 4, 5].map((i) => {
-      const bit = fxSpark(color, 1.15 - i * 0.12);
+    const style = effect.style || "orb";
+    const head = makeBoltHead(style, color);
+    const trail = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const bit = fxSpark(style === "frost" ? 0xe8fbff : color, 1.2 - i * 0.1);
       group.add(bit);
       return bit;
     });
-    const impact = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.82, 28), fxMat(color, 0.95, true));
-    const burst = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.4, 20), fxMat(0xffffff, 0.8, true));
-    impact.rotation.x = burst.rotation.x = -Math.PI / 2;
-    group.add(glow, core, impact, burst);
-    group.userData.parts = { core, glow, trail, impact, burst };
+    const impact = makeImpact(style, color);
+    group.add(head, impact);
+    group.userData.parts = { head, trail, impact };
     return group;
   }
   const nova = effect.kind === "nova";
@@ -1179,9 +1369,35 @@ function makeFxMesh(effect) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 36), fxMat(color, 0.85, true));
   const shock = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.08, 36), fxMat(color, 0.55, true));
   ring.rotation.x = shock.rotation.x = -Math.PI / 2;
+  const style = effect.style || "";
+  if (style === "frost") {
+    core.geometry.dispose();
+    core.geometry = new THREE.OctahedronGeometry(0.8, 0);
+    core.material.color.set(0xe8fbff);
+    core.material.blending = THREE.NormalBlending;
+  } else if (style === "fire") {
+    core.material.color.set(0xffe08a);
+    core.material.blending = THREE.AdditiveBlending;
+  } else if (style === "shield") {
+    core.material.opacity = 0.28;
+    core.material.blending = THREE.AdditiveBlending;
+    glow.scale.setScalar(1.35);
+  } else if (style === "smoke") {
+    core.material.opacity = 0.12;
+    glow.material.opacity = 0.18;
+  } else if (style === "shadow") {
+    core.material.color.set(0x1a1028);
+    core.material.blending = THREE.NormalBlending;
+  } else if (style === "heal") {
+    core.material.color.set(0xf4fff4);
+  } else if (style === "holy") {
+    core.material.color.set(0xfff6d2);
+  }
+  const extras = burstExtras(style, color);
+  extras.forEach((extra) => group.add(extra));
   const motes = addMotes(group, color, nova ? 14 : 8, nova ? 0.9 : 0.6);
   group.add(glow, core, ring, shock);
-  group.userData.parts = { core, glow, ring, shock, motes };
+  group.userData.parts = { core, glow, ring, shock, motes, extras };
   return group;
 }
 
@@ -1192,59 +1408,69 @@ function placeFx(group, effect) {
   group.visible = true;
   const parts = group.userData.parts;
   if (effect.kind === "bolt") {
-    const head = 0.12 + t * 0.88;
+    const headU = 0.1 + t * 0.88;
     const at = (u) => ({
       x: effect.x + (effect.x2 - effect.x) * u,
       y: effect.h + ((effect.h2 || effect.h) - effect.h) * u,
       z: effect.y + (effect.y2 - effect.y) * u,
     });
-    const p = at(head);
-    parts.core.position.set(p.x, p.y, p.z);
-    parts.glow.position.set(p.x, p.y, p.z);
-    const stretch = effect.round ? 1 : 1.85;
-    parts.core.scale.set(size, size, size * stretch);
-    parts.glow.scale.set(size * 1.2, size * 1.2, size * (effect.round ? 1.2 : 1.55));
-    if (!effect.round) {
-      parts.core.lookAt(effect.x2, effect.h2 || 1.2, effect.y2);
-      parts.glow.lookAt(effect.x2, effect.h2 || 1.2, effect.y2);
+    const p = at(headU);
+    const next = at(Math.min(1, headU + 0.05));
+    parts.head.position.set(p.x, p.y, p.z);
+    parts.head.scale.setScalar(size);
+    const dir = new THREE.Vector3(next.x - p.x, next.y - p.y, next.z - p.z);
+    if (dir.lengthSq() > 1e-6) {
+      parts.head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
     }
+    (parts.head.userData.spin || []).forEach((mesh, i) => {
+      mesh.rotation.y = t * 14 + i;
+    });
+    (parts.head.userData.tongues || []).forEach((flame, i) => {
+      const flick = 0.72 + Math.sin(t * 28 + i * 1.3) * 0.28;
+      flame.scale.set(flick, 0.65 + flick * 0.7, flick);
+    });
+    (parts.head.userData.wisps || []).forEach((wisp, i) => {
+      const ang = t * 12 + i * 1.05;
+      wisp.position.set(Math.cos(ang) * 0.5, Math.sin(ang * 1.4) * 0.28, Math.sin(ang) * 0.5);
+      wisp.material.opacity = 0.85 * fade;
+    });
     parts.trail.forEach((bit, i) => {
-      const q = at(Math.max(0, head - (i + 1) * 0.055));
+      const q = at(Math.max(0, headU - (i + 1) * 0.06));
       bit.position.set(q.x, q.y, q.z);
-      bit.scale.setScalar(size * (1.35 - i * 0.16));
-      bit.material.opacity = 0.85 * fade * (1 - i * 0.12);
+      bit.scale.setScalar(size * (0.55 - i * 0.05));
+      bit.material.opacity = 0.8 * fade * (1 - i * 0.1);
     });
     const hit = at(1);
-    parts.impact.position.set(hit.x, (effect.h2 || 0.2) + 0.08, hit.z);
-    parts.burst.position.copy(parts.impact.position);
     const landed = t > 0.72;
-    parts.impact.visible = parts.burst.visible = landed;
-    parts.impact.scale.setScalar(size * (1.1 + (t - 0.72) * 9));
-    parts.burst.scale.setScalar(size * (0.6 + (t - 0.72) * 5));
-    parts.impact.material.opacity = landed ? 0.9 * (1 - (t - 0.72) / 0.28) : 0;
-    parts.burst.material.opacity = landed ? 0.7 * (1 - (t - 0.72) / 0.28) : 0;
-    parts.core.material.opacity = fade;
-    parts.glow.material.opacity = 0.7 * fade;
+    parts.impact.visible = landed;
+    parts.impact.position.set(hit.x, (effect.h2 || 0.2) + 0.08, hit.z);
+    const spread = size * (1 + (t - 0.72) * 8);
+    parts.impact.scale.setScalar(Math.max(0.2, spread));
+    if (parts.impact.userData.ring) parts.impact.userData.ring.material.opacity = landed ? 0.9 * (1 - (t - 0.72) / 0.28) : 0;
+    (parts.impact.userData.bits || []).forEach((chip) => {
+      const ang = chip.userData.ang || 0;
+      chip.position.set(Math.cos(ang) * 0.45, 0.25, Math.sin(ang) * 0.45);
+      chip.material.opacity = landed ? 0.85 * (1 - (t - 0.72) / 0.28) : 0;
+    });
+    if (parts.impact.userData.flash) {
+      parts.impact.userData.flash.material.opacity = landed ? 0.8 * (1 - (t - 0.72) / 0.28) : 0;
+    }
     return;
   }
-  if (effect.kind === "beam") {
-    const pulse = 0.82 + Math.sin(t * 22) * 0.22;
-    parts.core.userData.girth = pulse;
-    parts.glow.userData.girth = pulse * 1.7;
-    aimCylinder(parts.core, effect.x, effect.h || 0.8, effect.y, effect.x2, effect.h2 || 0.8, effect.y2);
-    aimCylinder(parts.glow, effect.x, effect.h || 0.8, effect.y, effect.x2, effect.h2 || 0.8, effect.y2);
+  if (effect.kind === "trail" || effect.kind === "beam") {
     parts.motes.forEach((mote, i) => {
-      const u = (i + 0.5) / parts.motes.length;
+      const u = i / Math.max(1, parts.motes.length - 1);
       mote.position.set(
         effect.x + (effect.x2 - effect.x) * u,
-        (effect.h || 0.8) + ((effect.h2 || effect.h || 0.8) - (effect.h || 0.8)) * u + Math.sin(t * 16 + i) * 0.15,
+        (effect.h || 0.5) + ((effect.h2 || effect.h || 0.5) - (effect.h || 0.5)) * u + Math.sin(t * 14 + i) * 0.18,
         effect.y + (effect.y2 - effect.y) * u
       );
-      mote.scale.setScalar(0.55 + (i % 2) * 0.25);
-      mote.material.opacity = 0.75 * fade;
+      mote.scale.setScalar((effect.size || 1) * (0.95 - u * 0.35));
+      mote.material.opacity = 0.8 * fade * (1 - u * 0.35);
     });
-    parts.core.material.opacity = 0.95 * fade;
-    parts.glow.material.opacity = 0.4 * fade;
+    parts.puff.position.set(effect.x, effect.h || 0.5, effect.y);
+    parts.puff.scale.setScalar(1 + t * 1.5);
+    parts.puff.material.opacity = 0.4 * (1 - t);
     return;
   }
   if (effect.kind === "slash") {
@@ -1255,7 +1481,8 @@ function placeFx(group, effect) {
     parts.arc.scale.setScalar(s);
     parts.edge.scale.setScalar(s * 0.92);
     parts.glow.scale.setScalar(s * 1.08);
-    parts.arc.rotation.z = parts.edge.rotation.z = parts.glow.rotation.z = -0.6 + t * 1.5;
+    parts.arc.rotation.z = parts.edge.rotation.z = parts.glow.rotation.z = parts.blade.rotation.z = -0.6 + t * 1.5;
+    parts.blade.scale.setScalar(s);
     parts.flash.scale.setScalar(size * (1.5 - t));
     parts.flash.material.opacity = 0.85 * (1 - t);
     parts.motes.forEach((mote, i) => {
@@ -1284,6 +1511,12 @@ function placeFx(group, effect) {
       mote.scale.setScalar(0.45 + (i % 2) * 0.3);
       mote.material.opacity = 0.75 * fade;
     });
+    (parts.spikes || []).forEach((spike, i) => {
+      const ang = (i / parts.spikes.length) * Math.PI * 2;
+      spike.position.set(Math.cos(ang) * s * 0.92, 0.35, Math.sin(ang) * s * 0.92);
+      spike.scale.set(spike.scale.x, 0.8 + t * 0.4, spike.scale.z);
+      spike.material.opacity = 0.85 * fade;
+    });
     return;
   }
   const nova = effect.kind === "nova";
@@ -1302,10 +1535,24 @@ function placeFx(group, effect) {
     mote.scale.setScalar((nova ? 1.1 : 0.7) * (1 - t * 0.35));
     mote.material.opacity = 0.85 * fade;
   });
-  parts.core.material.opacity = (nova ? 0.7 : 0.95) * fade;
+  parts.core.material.opacity = (nova ? 0.7 : 0.95) * fade * (effect.style === "smoke" ? 0.25 : effect.style === "shield" ? 0.45 : 1);
   parts.glow.material.opacity = 0.4 * fade;
   parts.ring.material.opacity = 0.8 * (1 - t * 0.35);
   parts.shock.material.opacity = 0.45 * (1 - t);
+  (parts.extras || []).forEach((extra, i) => {
+    if (effect.style === "holy" || effect.style === "heal" || effect.style === "arcane") {
+      extra.position.set(0, 0.25, 0);
+      extra.rotation.y = t * 4;
+      extra.scale.setScalar(size * (0.9 + t * 0.25));
+    } else {
+      const ang = (i / Math.max(1, parts.extras.length)) * Math.PI * 2 + t;
+      const rad = size * (0.15 + t * 0.95);
+      extra.position.set(Math.cos(ang) * rad, 0.15 + t * 0.7, Math.sin(ang) * rad);
+      const s = size * (0.85 - t * 0.25);
+      extra.scale.set(s, s, effect.style === "nature" ? s * 0.35 : s);
+    }
+    extra.material.opacity = 0.85 * fade;
+  });
 }
 
 function syncFx(match) {
@@ -1337,50 +1584,6 @@ function syncFx(match) {
     disposeObject(mesh);
     gfx.fxMeshes.delete(id);
   }
-}
-
-function makeCastBeam() {
-  const group = new THREE.Group();
-  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1, 7), fxMat(0xf0d48a, 0.8, false));
-  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1, 8), fxMat(0xf0d48a, 0.32, true));
-  core.userData.girth = 1;
-  glow.userData.girth = 1;
-  group.add(glow, core);
-  group.userData.core = core;
-  group.userData.glow = glow;
-  return group;
-}
-
-function syncCastLines(match) {
-  if (!gfx.castLines) gfx.castLines = [];
-  const casters = match.units.filter((unit) => unit.hp > 0 && unit.cast && unit.cast.targetId && !unit.cast.channel);
-  while (gfx.castLines.length < casters.length) {
-    const beam = makeCastBeam();
-    gfx.scene.add(beam);
-    gfx.castLines.push(beam);
-  }
-  gfx.castLines.forEach((beam, i) => {
-    const unit = casters[i];
-    if (!unit) {
-      beam.visible = false;
-      return;
-    }
-    const target = match.units.find((u) => u.id === unit.cast.targetId);
-    const hiddenEnd = window.Arena.veiledFromViewer && (Arena.veiledFromViewer(unit) || (target && Arena.veiledFromViewer(target)));
-    if (!target || target === unit || hiddenEnd) {
-      beam.visible = false;
-      return;
-    }
-    beam.visible = true;
-    const look = window.Arena.spellLook(unit.cast.ability.id);
-    const color = look ? look.color : "#f0d48a";
-    beam.userData.core.material.color.set(color);
-    beam.userData.glow.material.color.set(color);
-    const y1 = 1.45 + (unit.height || 0);
-    const y2 = 1.25 + (target.height || 0);
-    aimCylinder(beam.userData.core, unit.x, y1, unit.y, target.x, y2, target.y);
-    aimCylinder(beam.userData.glow, unit.x, y1, unit.y, target.x, y2, target.y);
-  });
 }
 
 function pointerRay(clientX, clientY) {
@@ -1441,11 +1644,6 @@ function reset() {
       disposeObject(mesh);
     }
     gfx.fxMeshes.clear();
-  }
-  if (gfx.castLines) {
-    for (const line of gfx.castLines) {
-      line.visible = false;
-    }
   }
   gfx.camPos = null;
 }

@@ -28,6 +28,7 @@ const TYPES = {
 };
 
 const rooms = new Map();
+const parties = new Map();
 const queues = { 1: [], 2: [], 3: [] };
 const live = new Map();
 const CLASS_IDS = new Set(["warrior", "mage", "hunter", "priest", "warlock", "druid", "rogue", "warden", "binder", "vow", "duelist"]);
@@ -85,11 +86,20 @@ function laneYs(size) {
 
 function unqueue(member) {
   const size = member.queueSize;
-  if (!size || !queues[size]) return 0;
+  if (!size || !queues[size]) {
+    member.queueSize = 0;
+    return 0;
+  }
   const q = queues[size];
-  const i = q.indexOf(member);
-  if (i >= 0) q.splice(i, 1);
-  member.queueSize = 0;
+  const index = q.findIndex((group) => group.members.includes(member));
+  if (index >= 0) {
+    const group = q[index];
+    q.splice(index, 1);
+    for (const other of group.members) {
+      other.queueSize = 0;
+      if (other.party) other.party.queueSize = 0;
+    }
+  } else member.queueSize = 0;
   return size;
 }
 
@@ -97,7 +107,32 @@ function publishQueue(size) {
   const q = queues[size];
   if (!q) return;
   const need = size * 2;
-  for (const member of q) send(member.socket, { t: "queue", id: member.id, size, waiting: q.length, need });
+  const waiting = q.reduce((sum, group) => sum + group.members.length, 0);
+  for (const group of q) {
+    for (const member of group.members) {
+      send(member.socket, { t: "queue", id: member.id, size, waiting, need });
+    }
+  }
+}
+
+function takeSide(groups, size) {
+  function search(start, remain, picked) {
+    if (remain === 0) return picked;
+    for (let i = start; i < groups.length; i++) {
+      const count = groups[i].members.length;
+      if (count < 1 || count > remain) continue;
+      const found = search(i + 1, remain - count, picked.concat(i));
+      if (found) return found;
+    }
+    return null;
+  }
+  const picked = search(0, size, []);
+  if (!picked) return null;
+  const chosen = new Set(picked);
+  return {
+    side: picked.map((i) => groups[i]),
+    rest: groups.filter((_, i) => !chosen.has(i)),
+  };
 }
 
 function dropLive(member) {
@@ -110,19 +145,27 @@ function dropLive(member) {
 }
 
 function tryFill(size) {
-  const need = size * 2;
   const q = queues[size];
-  if (!q || q.length < need) return;
-  const group = q.splice(0, need);
-  for (const member of group) member.queueSize = 0;
-  for (let i = group.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const swap = group[i];
-    group[i] = group[j];
-    group[j] = swap;
+  if (!q || !q.length) return;
+  const first = takeSide(q, size);
+  if (!first) return;
+  const second = takeSide(first.rest, size);
+  if (!second) return;
+  const used = new Set(first.side.concat(second.side));
+  queues[size] = q.filter((group) => !used.has(group));
+  let blue = first.side;
+  let red = second.side;
+  if (Math.random() < 0.5) {
+    blue = second.side;
+    red = first.side;
+  }
+  const seated = blue.flatMap((group) => group.members).concat(red.flatMap((group) => group.members));
+  for (const member of seated) {
+    member.queueSize = 0;
+    if (member.party) member.party.queueSize = 0;
   }
   const ys = laneYs(size);
-  const roster = group.map((member, i) => {
+  const roster = seated.map((member, i) => {
     const team = i < size ? "ally" : "enemy";
     return {
       id: i + 1,
@@ -135,23 +178,30 @@ function tryFill(size) {
       name: member.name,
     };
   });
+  beginLive(seated, roster);
+  if (queues[size].length) publishQueue(size);
+}
+
+function beginLive(humans, roster) {
   let arena;
   try {
     arena = bootArena();
     arena.createMatch({ roster, netRole: "server" });
   } catch (err) {
     console.error(err);
-    for (const member of group) send(member.socket, { t: "error", text: "The match could not start." });
+    for (const member of humans) send(member.socket, { t: "error", text: "The match could not start." });
     return;
   }
   const id = nextMatch++;
-  const liveMatch = { id, arena, members: new Set(group), endTicks: 0 };
+  const liveMatch = { id, arena, members: new Set(humans), endTicks: 0 };
   live.set(id, liveMatch);
-  for (const member of group) {
+  for (const member of humans) {
+    member.queueSize = 0;
+    if (member.party) member.party.queueSize = 0;
     member.live = liveMatch;
     send(member.socket, { t: "msg", from: 0, id: member.id, data: { kind: "start", roster, server: true, map: arena.match.map } });
+    if (member.party) sendParty(member.party);
   }
-  if (q.length) publishQueue(size);
 }
 
 function sendRaw(socket, text) {
@@ -185,7 +235,7 @@ function codeOf() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 5; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return rooms.has(code) ? codeOf() : code;
+  return rooms.has(code) || parties.has(code) ? codeOf() : code;
 }
 
 function membersOf(room) {
@@ -199,10 +249,61 @@ function broadcast(room, obj, exceptId) {
   }
 }
 
-function leave(member) {
+function partyMembers(party) {
+  return [...party.members.values()].map((m) => ({ id: m.id, name: m.name, classId: m.classId }));
+}
+
+function sendParty(party) {
+  const members = partyMembers(party);
+  for (const member of party.members.values()) {
+    send(member.socket, {
+      t: "party",
+      id: member.id,
+      code: party.code,
+      leaderId: party.leaderId,
+      queued: party.queueSize || 0,
+      members,
+    });
+  }
+}
+
+function leaveParty(member) {
+  const party = member.party;
+  if (!party) return;
   const queued = unqueue(member);
   if (queued) publishQueue(queued);
-  dropLive(member);
+  party.members.delete(member.id);
+  member.party = null;
+  send(member.socket, { t: "party", gone: true, id: member.id });
+  if (party.members.size === 0) {
+    parties.delete(party.code);
+    return;
+  }
+  if (party.leaderId === member.id) party.leaderId = [...party.members.keys()][0];
+  sendParty(party);
+}
+
+function enqueueGroup(members, size) {
+  for (const member of members) {
+    dropLive(member);
+    const prev = unqueue(member);
+    if (prev && prev !== size) publishQueue(prev);
+  }
+  queues[size].push({ members });
+  for (const member of members) member.queueSize = size;
+  const party = members[0] && members[0].party;
+  if (party) party.queueSize = size;
+  publishQueue(size);
+  if (party) sendParty(party);
+  tryFill(size);
+}
+
+function named(member, msg) {
+  member.name = String(msg.name || member.name || "Player").slice(0, 16);
+  if (msg.classId) member.classId = CLASS_IDS.has(msg.classId) ? msg.classId : member.classId;
+}
+
+function leaveRoom(member) {
   const room = member.room;
   if (!room) return;
   room.members.delete(member.id);
@@ -217,12 +318,20 @@ function leave(member) {
   broadcast(room, { t: "left", id: member.id, hostId: room.hostId, members: membersOf(room) });
 }
 
+function leave(member) {
+  leaveParty(member);
+  const queued = unqueue(member);
+  if (queued) publishQueue(queued);
+  dropLive(member);
+  leaveRoom(member);
+}
+
 function onText(member, text) {
   let msg;
   try { msg = JSON.parse(text); } catch (err) { return; }
   if (!msg || typeof msg !== "object") return;
   if (msg.t === "create") {
-    if (member.room) leave(member);
+    leave(member);
     member.name = String(msg.name || "Player").slice(0, 16);
     const code = codeOf();
     const room = { code, hostId: member.id, members: new Map() };
@@ -243,12 +352,99 @@ function onText(member, text) {
       send(member.socket, { t: "error", text: "That room is full." });
       return;
     }
-    if (member.room) leave(member);
+    leave(member);
     member.name = String(msg.name || "Player").slice(0, 16);
     room.members.set(member.id, member);
     member.room = room;
     send(member.socket, { t: "joined", code, id: member.id, hostId: room.hostId, members: membersOf(room) });
     broadcast(room, { t: "peer", id: member.id, hostId: room.hostId, members: membersOf(room) }, member.id);
+    return;
+  }
+  if (msg.t === "party-create") {
+    leave(member);
+    named(member, msg);
+    const party = { code: codeOf(), leaderId: member.id, members: new Map(), queueSize: 0 };
+    party.members.set(member.id, member);
+    member.party = party;
+    parties.set(party.code, party);
+    sendParty(party);
+    return;
+  }
+  if (msg.t === "party-join") {
+    const code = String(msg.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const party = parties.get(code);
+    if (!party) {
+      send(member.socket, { t: "error", text: "No party with that code." });
+      return;
+    }
+    if (member.party === party) {
+      sendParty(party);
+      return;
+    }
+    if (party.queueSize) {
+      send(member.socket, { t: "error", text: "That party is already in queue." });
+      return;
+    }
+    if (party.members.size >= 3) {
+      send(member.socket, { t: "error", text: "That party is full." });
+      return;
+    }
+    leave(member);
+    named(member, msg);
+    party.members.set(member.id, member);
+    member.party = party;
+    sendParty(party);
+    return;
+  }
+  if (msg.t === "party-leave") {
+    leaveParty(member);
+    return;
+  }
+  if (msg.t === "party-class") {
+    if (!member.party) return;
+    named(member, msg);
+    sendParty(member.party);
+    return;
+  }
+  if (msg.t === "queue-bots") {
+    const party = member.party;
+    if (!party || party.leaderId !== member.id) {
+      send(member.socket, { t: "error", text: "Only the party leader can start a bot match." });
+      return;
+    }
+    const humans = [...party.members.values()];
+    const size = humans.length;
+    if (size < 1 || size > 3) return;
+    if (member.room) leaveRoom(member);
+    const queued = unqueue(member);
+    if (queued) publishQueue(queued);
+    named(member, msg);
+    for (const human of humans) dropLive(human);
+    const classes = [...CLASS_IDS];
+    const ys = laneYs(size);
+    const roster = humans.map((human, i) => ({
+      id: i + 1,
+      classId: human.classId,
+      team: "ally",
+      x: 18,
+      y: ys[i],
+      human: true,
+      peerId: human.id,
+      name: human.name,
+    }));
+    for (let i = 0; i < size; i++) {
+      roster.push({
+        id: size + i + 1,
+        classId: classes[Math.floor(Math.random() * classes.length)],
+        team: "enemy",
+        x: 82,
+        y: ys[i],
+        human: false,
+        peerId: null,
+        name: null,
+      });
+    }
+    beginLive(humans, roster);
     return;
   }
   if (msg.t === "queue") {
@@ -257,21 +453,30 @@ function onText(member, text) {
       send(member.socket, { t: "error", text: "Pick 1v1, 2v2, or 3v3." });
       return;
     }
-    if (member.room) leave(member);
-    dropLive(member);
-    const queued = unqueue(member);
-    if (queued && queued !== size) publishQueue(queued);
-    member.name = String(msg.name || "Player").slice(0, 16);
-    member.classId = CLASS_IDS.has(msg.classId) ? msg.classId : "warrior";
-    queues[size].push(member);
-    member.queueSize = size;
-    publishQueue(size);
-    tryFill(size);
+    const party = member.party;
+    if (party && party.leaderId !== member.id) {
+      send(member.socket, { t: "error", text: "Only the party leader can queue." });
+      return;
+    }
+    const group = party ? [...party.members.values()] : [member];
+    if (group.length > size) {
+      send(member.socket, { t: "error", text: "Your party is too big for that bracket." });
+      return;
+    }
+    if (member.room) leaveRoom(member);
+    named(member, msg);
+    enqueueGroup(member.party ? [...member.party.members.values()] : [member], size);
     return;
   }
   if (msg.t === "leave-queue") {
+    if (member.party && member.party.leaderId !== member.id) {
+      send(member.socket, { t: "error", text: "Only the party leader can leave the queue." });
+      return;
+    }
+    const party = member.party;
     const queued = unqueue(member);
     if (queued) publishQueue(queued);
+    if (party) sendParty(party);
     return;
   }
   if (msg.t === "play" && member.live && msg.data) {
@@ -370,7 +575,7 @@ server.on("upgrade", (req, socket) => {
     "Connection: Upgrade\r\n" +
     "Sec-WebSocket-Accept: " + accept + "\r\n\r\n"
   );
-  const member = { id: nextId++, name: "Player", classId: "warrior", socket, room: null, queueSize: 0, live: null, buf: Buffer.alloc(0) };
+  const member = { id: nextId++, name: "Player", classId: "warrior", socket, room: null, party: null, queueSize: 0, live: null, buf: Buffer.alloc(0) };
   socket.on("data", (chunk) => {
     member.buf = Buffer.concat([member.buf, chunk]);
     consume(member);

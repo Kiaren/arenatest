@@ -1557,7 +1557,7 @@ const CLASSES = {
     name: "Shade",
     color: CLASS_COLORS.rogue,
     role: "Melee",
-    blurb: "Opens from the veil with a stun, then sticks to a target. Veil works in a fight. Fade is a second, shorter veil.",
+    blurb: "Opens from the veil with a stun, then sticks to a target. Veil needs you out of combat. Fade is the one you use during a fight.",
     hp: 2950,
     speed: 13,
     melee: true,
@@ -1701,9 +1701,10 @@ const CLASSES = {
         castTime: 0,
         school: "physical",
         target: "self",
-        blurb: "Fade out and drop enemy targeting. Lasts 20 sec, and you can use it during a fight. Attacking reveals you. A direct hit reveals you. Blindside requires the veil.",
+        blurb: "Fade out and drop enemy targeting. Lasts 20 sec. Only usable out of combat. Attacking reveals you. A direct hit reveals you. Blindside requires the veil.",
         extra(source) {
           if (isVeiled(source)) return "Already veiled";
+          if (inCombat(source)) return "In combat";
           return null;
         },
         effect(source) {
@@ -1742,9 +1743,10 @@ const CLASSES = {
         gcd: false,
         school: "physical",
         target: "self",
-        blurb: "Drop enemy targeting, clear slows and roots, and enter the veil for 8 sec. 90 sec cooldown. Off the global cooldown.",
+        blurb: "Use during a fight. Drops combat, clears slows and roots, and enters the veil for 8 sec. 90 sec cooldown. Off the global cooldown.",
         effect(source) {
           source.auras = source.auras.filter((a) => a.control !== "root" && !a.slow);
+          dropCombat(source);
           enterVeil(source, 8);
           floater(source, "Fade", "#fff569");
           combat(`${nameOf(source)} fades into the veil.`);
@@ -2934,6 +2936,19 @@ function veiledFromViewer(unit) {
   return unit.team !== match.player.team;
 }
 
+function touchCombat(unit) {
+  if (!unit || !match) return;
+  unit.fought = match.time;
+}
+
+function inCombat(unit) {
+  return !!unit && unit.fought != null && match.time - unit.fought < 6;
+}
+
+function dropCombat(unit) {
+  if (unit) unit.fought = null;
+}
+
 function dropHostileTarget(source) {
   for (const unit of match.units) {
     if (unit === source || unit.team === source.team) continue;
@@ -3208,107 +3223,107 @@ function combat(text) {
 }
 
 const SPELL_LOOK = {
-  charge: { kind: "beam", color: "#f0d48a", life: 0.45 },
-  mortalStrike: { kind: "slash", color: "#e15b5b", life: 0.42, size: 1.25 },
-  hamstring: { kind: "slash", color: "#d6a15a", life: 0.36, size: 1 },
-  overpower: { kind: "slash", color: "#f2e2b0", life: 0.34, size: 1.05 },
-  execute: { kind: "slash", color: "#ff4d3a", life: 0.5, size: 1.65 },
-  pummel: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.9 },
-  heroicLeap: { kind: "ring", color: "#e7c98a", life: 0.8, size: 3.2 },
-  brace: { kind: "burst", color: "#e7c98a", life: 0.45, size: 1.4 },
-  emberWard: { kind: "burst", color: "#ff7a3c", life: 0.5, size: 1.45 },
-  pin: { kind: "bolt", color: "#d9cbb0", life: 0.4, size: 1 },
-  blessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.35 },
-  wither: { kind: "burst", color: "#6b4cff", life: 0.48, size: 1.2 },
-  thicket: { kind: "burst", color: "#7dce6a", life: 0.5, size: 1.3 },
-  step: { kind: "blink", color: "#e6d3b0", life: 0.4, size: 1.2 },
-  tend: { kind: "burst", color: "#5ee0c5", life: 0.48, size: 1.35 },
-  barbs: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.05, round: true },
-  comfort: { kind: "burst", color: "#f2a3c7", life: 0.48, size: 1.35 },
-  flourish: { kind: "slash", color: "#7f9cff", life: 0.45, size: 1.4 },
-  spellReflection: { kind: "burst", color: "#9ee7ff", life: 0.5, size: 1.45 },
-  trinket: { kind: "ring", color: "#b8fff0", life: 0.55, size: 3.4 },
-  frostbolt: { kind: "bolt", color: "#8fd7ff", life: 0.48, size: 1.15 },
-  fireBlast: { kind: "burst", color: "#ff7a3c", life: 0.42, size: 1.35 },
-  polymorph: { kind: "burst", color: "#d7b3ff", life: 0.55, size: 1.4 },
-  counterspell: { kind: "burst", color: "#c9a0ff", life: 0.38, size: 1.05 },
-  blink: { kind: "blink", color: "#9fd0ff", life: 0.45, size: 1.35 },
-  frostNova: { kind: "nova", color: "#c6f4ff", life: 0.7, size: 8 },
-  scorch: { kind: "bolt", color: "#ffb45a", life: 0.42, size: 1.2, round: true },
-  pyroblast: { kind: "bolt", color: "#ff6a2a", life: 0.62, size: 1.85, round: true },
-  iceBlock: { kind: "burst", color: "#c6f4ff", life: 0.5, size: 1.6 },
-  aimedShot: { kind: "bolt", color: "#f0e2b8", life: 0.4, size: 1.05 },
-  concussiveShot: { kind: "bolt", color: "#d9cbb0", life: 0.48, size: 1 },
-  freezingTrap: { kind: "ring", color: "#9eecff", life: 0.55, size: 3.4 },
-  wingClip: { kind: "slash", color: "#c4b48a", life: 0.36, size: 0.95 },
-  silencingShot: { kind: "bolt", color: "#b9a6e0", life: 0.4, size: 1 },
-  disengage: { kind: "dash", color: "#e6d3b0", life: 0.42 },
-  feignDeath: { kind: "burst", color: "#8a847c", life: 0.5, size: 1.4 },
-  deterrence: { kind: "ring", color: "#ffe08a", life: 0.55, size: 3.6 },
-  flashHeal: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.3 },
-  powerWordShield: { kind: "burst", color: "#9fd0ff", life: 0.48, size: 1.35 },
-  shadowWordPain: { kind: "burst", color: "#c084fc", life: 0.5, size: 1.15 },
-  psychicScream: { kind: "nova", color: "#b388ff", life: 0.65, size: 8 },
-  dispelMagic: { kind: "burst", color: "#f7f4ff", life: 0.4, size: 1.15 },
-  mindBlast: { kind: "bolt", color: "#9b6bff", life: 0.45, size: 1.25, round: true },
-  penance: { kind: "bolt", color: "#ffe08a", life: 0.28, size: 1, round: true },
-  desperatePrayer: { kind: "burst", color: "#b6ff6a", life: 0.55, size: 1.7 },
-  shadowBolt: { kind: "bolt", color: "#7d5cff", life: 0.5, size: 1.25, round: true },
-  corruption: { kind: "burst", color: "#6b4cff", life: 0.5, size: 1.2 },
-  agony: { kind: "burst", color: "#c084fc", life: 0.5, size: 1.25 },
-  unstableAffliction: { kind: "burst", color: "#6dff9a", life: 0.55, size: 1.35 },
-  fear: { kind: "bolt", color: "#b388ff", life: 0.48, size: 1.15, round: true },
-  spellLock: { kind: "burst", color: "#d7c4ff", life: 0.38, size: 1.05 },
-  drainLife: { kind: "bolt", color: "#9b6bff", life: 0.32, size: 1.05, round: true },
-  healthstone: { kind: "burst", color: "#7dff9a", life: 0.55, size: 1.6 },
-  rejuvenation: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.2 },
-  lifebloom: { kind: "burst", color: "#b6ff6a", life: 0.5, size: 1.25 },
-  regrowth: { kind: "burst", color: "#8fd18a", life: 0.5, size: 1.3 },
-  wildGrowth: { kind: "ring", color: "#7dff9a", life: 0.7, size: 6 },
-  swiftmend: { kind: "burst", color: "#c6ff8a", life: 0.48, size: 1.55 },
-  cyclone: { kind: "burst", color: "#e7c98a", life: 0.55, size: 1.45 },
-  wrath: { kind: "bolt", color: "#c6e58a", life: 0.45, size: 1.15, round: true },
-  ironbark: { kind: "burst", color: "#8f6a3a", life: 0.55, size: 1.5 },
-  sinisterStrike: { kind: "slash", color: "#fff569", life: 0.36, size: 1.05 },
-  eviscerate: { kind: "slash", color: "#e15b5b", life: 0.46, size: 1.4 },
-  cheapShot: { kind: "burst", color: "#f4f0c8", life: 0.42, size: 1.15 },
-  kick: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.95 },
-  gouge: { kind: "slash", color: "#e6d3b0", life: 0.38, size: 1.05 },
-  sprint: { kind: "ring", color: "#fff569", life: 0.5, size: 3.2 },
-  stealth: { kind: "burst", color: "#6a645c", life: 0.5, size: 1.35 },
-  vanish: { kind: "burst", color: "#3a342c", life: 0.55, size: 1.6 },
-  kindle: { kind: "ring", color: "#5ee0c5", life: 0.6, size: 8 },
-  soothe: { kind: "burst", color: "#b8fff0", life: 0.45, size: 1.25 },
-  shelter: { kind: "burst", color: "#9fd0ff", life: 0.48, size: 1.35 },
-  hush: { kind: "burst", color: "#f7f4ff", life: 0.4, size: 1.15 },
-  flare: { kind: "ring", color: "#fff1b0", life: 0.6, size: 8 },
-  mend: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.3 },
-  snuff: { kind: "ring", color: "#d7c39a", life: 0.5, size: 8 },
-  beacon: { kind: "ring", color: "#fff1b0", life: 0.7, size: 16 },
-  lash: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.1 },
-  brand: { kind: "burst", color: "#e23d4a", life: 0.48, size: 1.2 },
-  yank: { kind: "bolt", color: "#ff8a96", life: 0.4, size: 1.15 },
-  sever: { kind: "slash", color: "#ff4d3a", life: 0.46, size: 1.45 },
-  silenceLash: { kind: "burst", color: "#d7c4ff", life: 0.38, size: 1.05 },
-  hobble: { kind: "bolt", color: "#d6a15a", life: 0.4, size: 1 },
-  reel: { kind: "blink", color: "#e23d4a", life: 0.4, size: 1.2 },
-  bind: { kind: "ring", color: "#e23d4a", life: 0.6, size: 6 },
-  oath: { kind: "burst", color: "#f2a3c7", life: 0.5, size: 1.35 },
-  pulse: { kind: "burst", color: "#ffd0e4", life: 0.45, size: 1.25 },
-  link: { kind: "ring", color: "#f2a3c7", life: 0.55, size: 3.4 },
-  unravel: { kind: "burst", color: "#f7f4ff", life: 0.4, size: 1.15 },
-  chorus: { kind: "burst", color: "#ffb7d5", life: 0.5, size: 1.35 },
-  rebuke: { kind: "bolt", color: "#f2a3c7", life: 0.4, size: 1.05 },
-  thread: { kind: "burst", color: "#ffd0e4", life: 0.48, size: 1.2 },
-  unity: { kind: "ring", color: "#f2a3c7", life: 0.6, size: 4 },
-  mark: { kind: "burst", color: "#7f9cff", life: 0.45, size: 1.2 },
-  fleche: { kind: "slash", color: "#d7e4ff", life: 0.34, size: 1.05 },
-  riposte: { kind: "slash", color: "#7f9cff", life: 0.4, size: 1.2 },
-  lunge: { kind: "dash", color: "#7f9cff", life: 0.4 },
-  crosscut: { kind: "slash", color: "#ffe14a", life: 0.46, size: 1.45 },
-  parry: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.95 },
-  feint: { kind: "burst", color: "#c9d6ff", life: 0.4, size: 1.1 },
-  isolate: { kind: "ring", color: "#7f9cff", life: 0.55, size: 3.2 },
+  charge: { kind: "trail", color: "#f0d48a", life: 0.45, style: "dust" },
+  mortalStrike: { kind: "slash", color: "#e15b5b", life: 0.42, size: 1.25, style: "blade" },
+  hamstring: { kind: "slash", color: "#d6a15a", life: 0.36, size: 1, style: "blade" },
+  overpower: { kind: "slash", color: "#f2e2b0", life: 0.34, size: 1.05, style: "blade" },
+  execute: { kind: "slash", color: "#ff4d3a", life: 0.5, size: 1.65, style: "blade" },
+  pummel: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.9, style: "steel" },
+  heroicLeap: { kind: "ring", color: "#e7c98a", life: 0.8, size: 3.2, style: "dust" },
+  brace: { kind: "burst", color: "#e7c98a", life: 0.45, size: 1.4, style: "shield" },
+  emberWard: { kind: "burst", color: "#ff7a3c", life: 0.5, size: 1.45, style: "fire" },
+  pin: { kind: "bolt", color: "#d9cbb0", life: 0.4, size: 1.05, style: "arrow" },
+  blessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.35, style: "holy" },
+  wither: { kind: "burst", color: "#6b4cff", life: 0.48, size: 1.2, style: "shadow" },
+  thicket: { kind: "burst", color: "#7dce6a", life: 0.5, size: 1.3, style: "nature" },
+  step: { kind: "blink", color: "#e6d3b0", life: 0.4, size: 1.2, style: "smoke" },
+  tend: { kind: "burst", color: "#5ee0c5", life: 0.48, size: 1.35, style: "heal" },
+  barbs: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.15, style: "barb" },
+  comfort: { kind: "burst", color: "#f2a3c7", life: 0.48, size: 1.35, style: "holy" },
+  flourish: { kind: "slash", color: "#7f9cff", life: 0.45, size: 1.4, style: "blade" },
+  spellReflection: { kind: "burst", color: "#9ee7ff", life: 0.5, size: 1.45, style: "shield" },
+  trinket: { kind: "ring", color: "#b8fff0", life: 0.55, size: 3.4, style: "holy" },
+  frostbolt: { kind: "bolt", color: "#8fd7ff", life: 0.55, size: 1.35, style: "frost" },
+  fireBlast: { kind: "burst", color: "#ff7a3c", life: 0.42, size: 1.45, style: "fire" },
+  polymorph: { kind: "burst", color: "#d7b3ff", life: 0.55, size: 1.4, style: "arcane" },
+  counterspell: { kind: "burst", color: "#c9a0ff", life: 0.38, size: 1.05, style: "arcane" },
+  blink: { kind: "blink", color: "#9fd0ff", life: 0.45, size: 1.35, style: "arcane" },
+  frostNova: { kind: "nova", color: "#c6f4ff", life: 0.7, size: 8, style: "frost" },
+  scorch: { kind: "bolt", color: "#ffb45a", life: 0.48, size: 1.15, style: "fire" },
+  pyroblast: { kind: "bolt", color: "#ff5a1f", life: 0.72, size: 2.25, style: "pyro" },
+  iceBlock: { kind: "burst", color: "#c6f4ff", life: 0.55, size: 1.7, style: "frost" },
+  aimedShot: { kind: "bolt", color: "#f0e2b8", life: 0.42, size: 1.15, style: "arrow" },
+  concussiveShot: { kind: "bolt", color: "#d9cbb0", life: 0.48, size: 1.05, style: "arrow" },
+  freezingTrap: { kind: "ring", color: "#9eecff", life: 0.55, size: 3.4, style: "frost" },
+  wingClip: { kind: "slash", color: "#c4b48a", life: 0.36, size: 0.95, style: "blade" },
+  silencingShot: { kind: "bolt", color: "#b9a6e0", life: 0.4, size: 1.05, style: "arrow" },
+  disengage: { kind: "trail", color: "#e6d3b0", life: 0.42, style: "dust" },
+  feignDeath: { kind: "burst", color: "#8a847c", life: 0.5, size: 1.4, style: "smoke" },
+  deterrence: { kind: "ring", color: "#ffe08a", life: 0.55, size: 3.6, style: "shield" },
+  flashHeal: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.3, style: "heal" },
+  powerWordShield: { kind: "burst", color: "#9fd0ff", life: 0.48, size: 1.45, style: "shield" },
+  shadowWordPain: { kind: "burst", color: "#c084fc", life: 0.5, size: 1.15, style: "shadow" },
+  psychicScream: { kind: "nova", color: "#b388ff", life: 0.65, size: 8, style: "shadow" },
+  dispelMagic: { kind: "burst", color: "#f7f4ff", life: 0.4, size: 1.15, style: "holy" },
+  mindBlast: { kind: "bolt", color: "#9b6bff", life: 0.48, size: 1.25, style: "mind" },
+  penance: { kind: "bolt", color: "#ffe08a", life: 0.28, size: 1, style: "holy" },
+  desperatePrayer: { kind: "burst", color: "#b6ff6a", life: 0.55, size: 1.7, style: "holy" },
+  shadowBolt: { kind: "bolt", color: "#7d5cff", life: 0.52, size: 1.4, style: "shadow" },
+  corruption: { kind: "burst", color: "#6b4cff", life: 0.5, size: 1.2, style: "shadow" },
+  agony: { kind: "burst", color: "#c084fc", life: 0.5, size: 1.25, style: "shadow" },
+  unstableAffliction: { kind: "burst", color: "#6dff9a", life: 0.55, size: 1.35, style: "nature" },
+  fear: { kind: "bolt", color: "#b388ff", life: 0.5, size: 1.25, style: "fear" },
+  spellLock: { kind: "burst", color: "#d7c4ff", life: 0.38, size: 1.05, style: "arcane" },
+  drainLife: { kind: "bolt", color: "#9b6bff", life: 0.36, size: 1.05, style: "siphon", pull: true },
+  healthstone: { kind: "burst", color: "#7dff9a", life: 0.55, size: 1.6, style: "heal" },
+  rejuvenation: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.2, style: "nature" },
+  lifebloom: { kind: "burst", color: "#b6ff6a", life: 0.5, size: 1.25, style: "nature" },
+  regrowth: { kind: "burst", color: "#8fd18a", life: 0.5, size: 1.3, style: "nature" },
+  wildGrowth: { kind: "ring", color: "#7dff9a", life: 0.7, size: 6, style: "nature" },
+  swiftmend: { kind: "burst", color: "#c6ff8a", life: 0.48, size: 1.55, style: "heal" },
+  cyclone: { kind: "burst", color: "#e7c98a", life: 0.55, size: 1.45, style: "nature" },
+  wrath: { kind: "bolt", color: "#c6e58a", life: 0.48, size: 1.2, style: "nature" },
+  ironbark: { kind: "burst", color: "#8f6a3a", life: 0.55, size: 1.5, style: "nature" },
+  sinisterStrike: { kind: "slash", color: "#fff569", life: 0.36, size: 1.05, style: "blade" },
+  eviscerate: { kind: "slash", color: "#e15b5b", life: 0.46, size: 1.4, style: "blade" },
+  cheapShot: { kind: "burst", color: "#f4f0c8", life: 0.42, size: 1.15, style: "steel" },
+  kick: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.95, style: "steel" },
+  gouge: { kind: "slash", color: "#e6d3b0", life: 0.38, size: 1.05, style: "blade" },
+  sprint: { kind: "ring", color: "#fff569", life: 0.5, size: 3.2, style: "dust" },
+  stealth: { kind: "burst", color: "#6a645c", life: 0.5, size: 1.35, style: "smoke" },
+  vanish: { kind: "burst", color: "#3a342c", life: 0.55, size: 1.6, style: "smoke" },
+  kindle: { kind: "ring", color: "#5ee0c5", life: 0.6, size: 8, style: "nature" },
+  soothe: { kind: "burst", color: "#b8fff0", life: 0.45, size: 1.25, style: "heal" },
+  shelter: { kind: "burst", color: "#9fd0ff", life: 0.48, size: 1.35, style: "shield" },
+  hush: { kind: "burst", color: "#f7f4ff", life: 0.4, size: 1.15, style: "holy" },
+  flare: { kind: "ring", color: "#fff1b0", life: 0.6, size: 8, style: "fire" },
+  mend: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.3, style: "heal" },
+  snuff: { kind: "ring", color: "#d7c39a", life: 0.5, size: 8, style: "smoke" },
+  beacon: { kind: "ring", color: "#fff1b0", life: 0.7, size: 16, style: "holy" },
+  lash: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.15, style: "lash" },
+  brand: { kind: "burst", color: "#e23d4a", life: 0.48, size: 1.2, style: "fire" },
+  yank: { kind: "bolt", color: "#ff8a96", life: 0.42, size: 1.15, style: "chain" },
+  sever: { kind: "slash", color: "#ff4d3a", life: 0.46, size: 1.45, style: "blade" },
+  silenceLash: { kind: "burst", color: "#d7c4ff", life: 0.38, size: 1.05, style: "arcane" },
+  hobble: { kind: "bolt", color: "#d6a15a", life: 0.42, size: 1.05, style: "chain" },
+  reel: { kind: "blink", color: "#e23d4a", life: 0.4, size: 1.2, style: "fire" },
+  bind: { kind: "ring", color: "#e23d4a", life: 0.6, size: 6, style: "shadow" },
+  oath: { kind: "burst", color: "#f2a3c7", life: 0.5, size: 1.35, style: "holy" },
+  pulse: { kind: "burst", color: "#ffd0e4", life: 0.45, size: 1.25, style: "holy" },
+  link: { kind: "ring", color: "#f2a3c7", life: 0.55, size: 3.4, style: "holy" },
+  unravel: { kind: "burst", color: "#f7f4ff", life: 0.4, size: 1.15, style: "holy" },
+  chorus: { kind: "burst", color: "#ffb7d5", life: 0.5, size: 1.35, style: "holy" },
+  rebuke: { kind: "bolt", color: "#f2a3c7", life: 0.4, size: 1.1, style: "holy" },
+  thread: { kind: "burst", color: "#ffd0e4", life: 0.48, size: 1.2, style: "holy" },
+  unity: { kind: "ring", color: "#f2a3c7", life: 0.6, size: 4, style: "holy" },
+  mark: { kind: "burst", color: "#7f9cff", life: 0.45, size: 1.2, style: "arcane" },
+  fleche: { kind: "slash", color: "#d7e4ff", life: 0.34, size: 1.05, style: "blade" },
+  riposte: { kind: "slash", color: "#7f9cff", life: 0.4, size: 1.2, style: "blade" },
+  lunge: { kind: "trail", color: "#7f9cff", life: 0.4, style: "dust" },
+  crosscut: { kind: "slash", color: "#ffe14a", life: 0.46, size: 1.45, style: "blade" },
+  parry: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.95, style: "steel" },
+  feint: { kind: "burst", color: "#c9d6ff", life: 0.4, size: 1.1, style: "arcane" },
+  isolate: { kind: "ring", color: "#7f9cff", life: 0.55, size: 3.2, style: "arcane" },
 };
 
 let fxSerial = 1;
@@ -3326,19 +3341,19 @@ function spellVisual(id, source, target, from) {
   const origin = from || { x: source.x, y: source.y, h: 0 };
   const dest = target || source;
   if (id === "blink" || id === "reel" || id === "step") {
-    spellFx({ kind: "burst", color: look.color, x: origin.x, y: origin.y, h: 1.15, life: look.life, size: look.size });
-    spellFx({ kind: "burst", color: look.color, x: source.x, y: source.y, h: 1.15, life: look.life, size: look.size });
+    spellFx({ kind: "burst", style: look.style || "arcane", color: look.color, x: origin.x, y: origin.y, h: 1.15, life: look.life, size: look.size });
+    spellFx({ kind: "burst", style: look.style || "arcane", color: look.color, x: source.x, y: source.y, h: 1.15, life: look.life, size: look.size });
     return;
   }
   if (id === "disengage") {
     const sp = Math.hypot(source.vx, source.vy) || 1;
     spellFx({
-      kind: "beam", color: look.color,
+      kind: "trail", style: "dust", color: look.color,
       x: origin.x, y: origin.y, h: 0.55,
       x2: origin.x + (source.vx / sp) * 7, y2: origin.y + (source.vy / sp) * 7, h2: 0.7,
       life: look.life,
     });
-    spellFx({ kind: "burst", color: look.color, x: origin.x, y: origin.y, h: 0.8, life: 0.36, size: 1.3 });
+    spellFx({ kind: "burst", style: "dust", color: look.color, x: origin.x, y: origin.y, h: 0.8, life: 0.36, size: 1.3 });
     return;
   }
   if (id === "heroicLeap" && source.dash) {
@@ -3347,7 +3362,7 @@ function spellVisual(id, source, target, from) {
     return;
   }
   if (id === "charge" && source.dash) {
-    spellFx({ kind: "beam", color: look.color, x: origin.x, y: origin.y, h: 0.4, x2: source.dash.x, y2: source.dash.y, h2: 0.4, life: look.life });
+    spellFx({ kind: "trail", style: "dust", color: look.color, x: origin.x, y: origin.y, h: 0.45, x2: source.dash.x, y2: source.dash.y, h2: 0.45, life: look.life });
     return;
   }
   if (id === "freezingTrap") {
@@ -3363,29 +3378,34 @@ function spellVisual(id, source, target, from) {
     return;
   }
   if (id === "lunge" && source.dash) {
-    spellFx({ kind: "beam", color: look.color, x: origin.x, y: origin.y, h: 0.45, x2: source.dash.x, y2: source.dash.y, h2: 0.45, life: look.life });
+    spellFx({ kind: "trail", style: "dust", color: look.color, x: origin.x, y: origin.y, h: 0.45, x2: source.dash.x, y2: source.dash.y, h2: 0.45, life: look.life });
     return;
   }
   if (id === "penance") {
     const heal = dest.team === source.team;
     spellFx({
-      kind: "bolt", color: heal ? "#ffe08a" : "#7a5cff", round: true, size: 1.05, life: 0.28,
+      kind: "bolt", style: heal ? "holy" : "shadow", color: heal ? "#ffe08a" : "#7a5cff", size: 1.05, life: 0.28,
       x: origin.x, y: origin.y, h: 1.35 + (origin.h || 0),
       x2: dest.x, y2: dest.y, h2: 1.2 + (dest.height || 0),
     });
     return;
   }
   if (look.kind === "bolt") {
+    const pull = !!look.pull;
     spellFx({
-      kind: "bolt", color: look.color, round: !!look.round, size: look.size || 0.24, life: look.life,
-      x: origin.x, y: origin.y, h: 1.35 + (origin.h || 0),
-      x2: dest.x, y2: dest.y, h2: 1.15 + (dest.height || 0),
+      kind: "bolt", style: look.style || "orb", color: look.color, size: look.size || 1, life: look.life,
+      x: pull ? dest.x : origin.x,
+      y: pull ? dest.y : origin.y,
+      h: 1.35 + ((pull ? dest.height : origin.h) || 0),
+      x2: pull ? origin.x : dest.x,
+      y2: pull ? origin.y : dest.y,
+      h2: 1.15 + ((pull ? origin.h : dest.height) || 0),
     });
     return;
   }
   if (look.kind === "slash") {
     spellFx({
-      kind: "slash", color: look.color, size: look.size || 1, life: look.life,
+      kind: "slash", style: look.style || "blade", color: look.color, size: look.size || 1, life: look.life,
       x: origin.x, y: origin.y, x2: dest.x, y2: dest.y, h: 1.25 + (dest.height || 0),
     });
     return;
@@ -3400,6 +3420,7 @@ function spellVisual(id, source, target, from) {
     h: look.kind === "ring" || look.kind === "nova" ? 0.12 : 1.15 + (at.height || 0),
     life: look.life,
     size: look.size || 1,
+    style: look.style || "",
     conceal: id === "stealth" || id === "vanish" ? source.team : "",
   });
 }
@@ -3500,6 +3521,8 @@ function dealDamage(source, target, raw, meta) {
   if (!target || target.hp <= 0) return 0;
   if (immune(target)) {
     if (meta.direct && source) breakVeil(source);
+    if (source) touchCombat(source);
+    touchCombat(target);
     floater(target, "Immune", "#ddd");
     return 0;
   }
@@ -3563,6 +3586,10 @@ function dealDamage(source, target, raw, meta) {
     }
     breakIncaps(target);
     if (meta.direct) breakVeil(target);
+  }
+  if (amount > 0) {
+    touchCombat(target);
+    if (source) touchCombat(source);
   }
   if (meta.direct && source) breakVeil(source);
   if (source) source.stats.damage += remaining;
@@ -4420,8 +4447,38 @@ function pickKillTarget(unit) {
   return [...foes].sort((a, b) => a.hp / a.hpMax - b.hp / b.hpMax)[0];
 }
 
-function foeCasting(unit, range) {
-  return foesOf(unit).find((f) => f.cast && !isHidden(f) && dist(unit, f) <= range && hasLoS(unit, f) && !immune(f));
+function interruptPlan(cast) {
+  if (cast.plan) return cast.plan;
+  const total = cast.total || 0;
+  if (cast.channel) {
+    cast.plan = { skip: Math.random() < 0.4, at: 0.85 + Math.random() * 0.7 };
+    return cast.plan;
+  }
+  const earliest = Math.max(0.7, total * 0.42);
+  const latest = total - 0.28;
+  if (total < 1.15 || latest <= earliest) {
+    cast.plan = { skip: true, at: total };
+    return cast.plan;
+  }
+  cast.plan = {
+    skip: Math.random() < 0.32,
+    at: earliest + Math.random() * (latest - earliest),
+  };
+  return cast.plan;
+}
+
+function tryKick(unit, abilityId, range, minRange) {
+  for (const foe of foesOf(unit)) {
+    if (!foe.cast || isHidden(foe) || immune(foe)) continue;
+    const gap = dist(unit, foe);
+    if (gap > range || (minRange && gap < minRange) || !hasLoS(unit, foe)) continue;
+    const plan = interruptPlan(foe.cast);
+    if (plan.skip) continue;
+    const elapsed = (foe.cast.total || 0) - foe.cast.time;
+    if (elapsed + 0.02 < plan.at || foe.cast.time < 0.18) continue;
+    return tryCast(unit, abilityId, foe);
+  }
+  return false;
 }
 
 function forgetHiddenTargets() {
@@ -4505,8 +4562,7 @@ function wantRange(unit, target, minR, maxR) {
 function aiVanguard(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
-  const casting = foeCasting(unit, 5);
-  if (casting) tryCast(unit, "pummel", casting);
+  tryKick(unit, "pummel", 5);
   const magicCast = foesOf(unit).find((f) => !isHidden(f) && f.cast && f.cast.ability.reflectable && dist(unit, f) < 32 && hasLoS(unit, f));
   if (magicCast && (unit.cd.spellReflection || 0) <= 0) tryCast(unit, "spellReflection");
   if (kill && !unit.gcd) {
@@ -4531,8 +4587,7 @@ function aiChanneler(unit) {
   if (kill) unit.targetId = kill.id;
   if (unit.hp / unit.hpMax < 0.25) tryCast(unit, "iceBlock");
   if (unit.hp / unit.hpMax < 0.55 && !unit.auras.some((a) => a.absorb)) tryCast(unit, "emberWard");
-  const casting = foeCasting(unit, 30);
-  if (casting) tryCast(unit, "counterspell", casting);
+  tryKick(unit, "counterspell", 30);
   const near = nearestFoe(unit);
   if (near && dist(unit, near) < 8 && (unit.cd.blink || 0) <= 0) {
     unit.facing = Math.atan2(unit.y - near.y, unit.x - near.x);
@@ -4562,8 +4617,7 @@ function aiRanger(unit) {
     unit.facing = Math.atan2(near.y - unit.y, near.x - unit.x);
     tryCast(unit, "disengage");
   }
-  const casting = foeCasting(unit, 35);
-  if (casting && dist(unit, casting) >= 8) tryCast(unit, "silencingShot", casting);
+  tryKick(unit, "silencingShot", 35, 8);
   if (near && dist(unit, near) < 16 && (unit.cd.freezingTrap || 0) <= 0 && !match.traps.some((t) => t.ownerId === unit.id)) {
     const ang = Math.atan2(near.y - unit.y, near.x - unit.x);
     const place = Math.min(12, Math.max(4, dist(unit, near) * 0.65));
@@ -4613,7 +4667,8 @@ function aiCleric(unit) {
   }
   if (!unit.cast || unit.cast.ability.moveCast) {
     if (near && dist(unit, near) < 11) wantRange(unit, near, 14, 28);
-    else if (lowest && dist(unit, lowest) > 16) unit.goal = pathTo(unit, lowest);
+    else if (lowest && lowest !== unit && dist(unit, lowest) > 18 && lowest.hp / lowest.hpMax < 0.85) unit.goal = pathTo(unit, lowest);
+    else if (kill) wantRange(unit, kill, 16, 28);
     else unit.goal = null;
   }
 }
@@ -4622,8 +4677,7 @@ function aiHexer(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
   if (unit.hp / unit.hpMax < 0.36) tryCast(unit, "healthstone");
-  const casting = foeCasting(unit, 30);
-  if (casting) tryCast(unit, "spellLock", casting);
+  tryKick(unit, "spellLock", 30);
   const off = foesOf(unit).find((foe) => (
     foe !== kill
     && !isHidden(foe)
@@ -4677,7 +4731,8 @@ function aiGrovekeeper(unit) {
   }
   if (!unit.cast) {
     if (near && dist(unit, near) < 11) wantRange(unit, near, 14, 28);
-    else if (lowest && dist(unit, lowest) > 18) unit.goal = pathTo(unit, lowest);
+    else if (lowest && lowest !== unit && dist(unit, lowest) > 18 && lowest.hp / lowest.hpMax < 0.85) unit.goal = pathTo(unit, lowest);
+    else if (kill) wantRange(unit, kill, 16, 28);
     else unit.goal = null;
   }
 }
@@ -4686,10 +4741,9 @@ function aiShade(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
   if (unit.hp / unit.hpMax < 0.34) tryCast(unit, "vanish");
-  const casting = foeCasting(unit, 5);
-  if (casting) tryCast(unit, "kick", casting);
+  tryKick(unit, "kick", 5);
   const hidden = isVeiled(unit);
-  if (!hidden && kill && dist(unit, kill) > 10 && (unit.cd.stealth || 0) <= 0 && unit.hp / unit.hpMax > 0.5) {
+  if (!hidden && !inCombat(unit) && kill && dist(unit, kill) > 10 && (unit.cd.stealth || 0) <= 0 && unit.hp / unit.hpMax > 0.5) {
     tryCast(unit, "stealth");
   }
   if (isVeiled(unit) && kill && dist(unit, kill) <= 5) tryCast(unit, "cheapShot", kill);
@@ -4741,9 +4795,11 @@ function aiWarden(unit) {
   if (lowest && lowest.hp / lowest.hpMax < 0.58 && !unit.cast) tryCast(unit, "mend", lowest);
   if (!unit.cast) {
     const stand = lanternOf(unit);
+    const foe = pickKillTarget(unit);
     if (near && dist(unit, near) < 11) wantRange(unit, near, 14, 28);
-    else if (lowest && dist(unit, lowest) > 14) unit.goal = pathTo(unit, lowest);
+    else if (lowest && lowest !== unit && dist(unit, lowest) > 14 && lowest.hp / lowest.hpMax < 0.85) unit.goal = pathTo(unit, lowest);
     else if (stand && dist(unit, stand) > lanternReach(stand)) unit.goal = pathTo(unit, stand);
+    else if (foe) wantRange(unit, foe, 16, 28);
     else unit.goal = null;
   }
 }
@@ -4753,8 +4809,7 @@ function aiBinder(unit) {
   if (kill) unit.targetId = kill.id;
   const foes = foesOf(unit);
   if (foes.length >= 2 && dist(foes[0], foes[1]) <= 12 && (!kill || kill.hp / kill.hpMax > 0.35)) tryCast(unit, "bind");
-  const casting = foeCasting(unit, 30);
-  if (casting) tryCast(unit, "silenceLash", casting);
+  tryKick(unit, "silenceLash", 30);
   if (kill && !unit.cast) {
     const stacks = chainStacks(unit, kill);
     const d = dist(unit, kill);
@@ -4798,7 +4853,8 @@ function aiVow(unit) {
   if (!unit.cast && kill && friends.every((f) => f.hp / f.hpMax > 0.86)) tryCast(unit, "rebuke", kill);
   if (!unit.cast) {
     if (near && dist(unit, near) < 11) wantRange(unit, near, 14, 28);
-    else if (lowest && dist(unit, lowest) > 16) unit.goal = pathTo(unit, lowest);
+    else if (lowest && lowest !== unit && dist(unit, lowest) > 16 && lowest.hp / lowest.hpMax < 0.85) unit.goal = pathTo(unit, lowest);
+    else if (kill) wantRange(unit, kill, 16, 28);
     else unit.goal = null;
   }
 }
@@ -4806,8 +4862,7 @@ function aiVow(unit) {
 function aiDuelist(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
-  const casting = foeCasting(unit, 5);
-  if (casting) tryCast(unit, "parry", casting);
+  tryKick(unit, "parry", 5);
   if (kill && !isDuelMark(unit, kill)) tryCast(unit, "mark", kill);
   if (kill && isDuelMark(unit, kill) && kill.hp / kill.hpMax < 0.65) tryCast(unit, "isolate", kill);
   if (kill) {
@@ -5645,7 +5700,10 @@ function updateHud() {
     let usable = match.phase === "fight" && player.hp > 0 && !frozen && (ability.id === "trinket" || !controlled);
     if (ability.cost > player.resource) usable = false;
     if ((player.cd[ability.id] || 0) > 0) usable = false;
-    if (ability.extra && selected && ability.extra(player, ability.target === "self" ? player : selected)) usable = false;
+    if (ability.extra) {
+      const extraTarget = ability.target === "self" || ability.target === "aoe" || ability.target === "ground" ? player : selected;
+      if (extraTarget && ability.extra(player, extraTarget)) usable = false;
+    }
     btn.classList.toggle("unusable", !usable && match.phase === "fight");
   }
 
@@ -5691,6 +5749,7 @@ const setup = {
 };
 let playMode = "local";
 let room = null;
+let party = null;
 let queueing = false;
 let netStatus = "";
 let playerName = "Player";
@@ -5734,6 +5793,10 @@ function readIdentity() {
 
 function iAmHost() {
   return !!(window.ArenaNet && ArenaNet.id && ArenaNet.id === ArenaNet.hostId);
+}
+
+function iLeadParty() {
+  return !!(party && window.ArenaNet && ArenaNet.id === party.leaderId);
 }
 
 function localWish() {
@@ -5897,8 +5960,8 @@ function packMatch() {
     lanterns: (match.lanterns || []).map((l) => ({ ownerId: l.ownerId, team: l.team, x: l.x, y: l.y, h: l.h || 0, life: l.life, radius: l.radius, tick: l.tick, beacon: l.beacon })),
     fx: (match.fx || []).map((effect) => ({
       id: effect.id, kind: effect.kind, color: effect.color, x: effect.x, y: effect.y, h: effect.h,
-      x2: effect.x2, y2: effect.y2, h2: effect.h2, life: effect.life, max: effect.max, size: effect.size, round: !!effect.round,
-      conceal: effect.conceal || "",
+      x2: effect.x2, y2: effect.y2, h2: effect.h2,       life: effect.life, max: effect.max, size: effect.size, round: !!effect.round,
+      style: effect.style || "", conceal: effect.conceal || "",
     })),
     floaters: match.floaters.map((f) => ({ unitId: f.unitId, x: f.x, y: f.y, h: f.h, text: f.text, color: f.color, life: f.life })),
     units: match.units.map((unit) => ({
@@ -6103,12 +6166,16 @@ function onNetMessage(msg) {
   }
   if (msg.t === "closed") {
     room = null;
+    party = null;
+    queueing = false;
     netStatus = msg.reason || "Disconnected.";
     if (match && match.netRole !== "local") returnToLobby();
     else renderLobby();
     return;
   }
   if (msg.t === "created") {
+    party = null;
+    queueing = false;
     fitTeams();
     room = { code: msg.code, slots: makeSlots(setup.size) };
     claimSlot(0, ArenaNet.id, playerName, setup.player);
@@ -6117,7 +6184,28 @@ function onNetMessage(msg) {
     renderLobby();
     return;
   }
+  if (msg.t === "party") {
+    if (msg.gone) {
+      party = null;
+      queueing = false;
+      netStatus = "You left the party.";
+    } else {
+      party = {
+        code: msg.code,
+        leaderId: msg.leaderId,
+        queued: msg.queued || 0,
+        members: msg.members || [],
+      };
+      queueing = !!msg.queued;
+      if (!msg.queued) netStatus = "Party open. Share the code.";
+      if (party.members.length > setup.size) setup.size = Math.min(3, party.members.length);
+    }
+    if (!match) renderLobby();
+    return;
+  }
   if (msg.t === "joined") {
+    party = null;
+    queueing = false;
     room = { code: msg.code, slots: [] };
     netStatus = "Joined. Waiting for the host.";
     renderLobby();
@@ -6197,14 +6285,30 @@ function onNetMessage(msg) {
   }
 }
 
+async function ensureOnline() {
+  readIdentity();
+  if (window.ArenaNet && ArenaNet.connected) return;
+  netStatus = "Connecting…";
+  renderLobby();
+  await ArenaNet.connect(defaultServer());
+}
+
 async function findMatch() {
   if (queueing) return;
   readIdentity();
   fitTeams();
-  netStatus = "Connecting…";
-  renderLobby();
+  if (party && !iLeadParty()) {
+    netStatus = "Only the party leader can queue.";
+    renderLobby();
+    return;
+  }
+  if (party && party.members.length > setup.size) {
+    netStatus = "Your party is too big for that bracket.";
+    renderLobby();
+    return;
+  }
   try {
-    await ArenaNet.connect(defaultServer());
+    await ensureOnline();
     ArenaNet.queue(setup.size, setup.player, playerName);
   } catch (err) {
     queueing = false;
@@ -6223,10 +6327,8 @@ function cancelQueue() {
 async function hostRoom() {
   readIdentity();
   fitTeams();
-  netStatus = "Connecting...";
-  renderLobby();
   try {
-    await ArenaNet.connect(defaultServer());
+    await ensureOnline();
     ArenaNet.create(playerName);
   } catch (err) {
     netStatus = "Could not reach the room server. Run node server.js, then open this page from that address.";
@@ -6242,10 +6344,8 @@ async function joinRoom() {
     renderLobby();
     return;
   }
-  netStatus = "Connecting...";
-  renderLobby();
   try {
-    await ArenaNet.connect(defaultServer());
+    await ensureOnline();
     ArenaNet.join(code, playerName);
   } catch (err) {
     netStatus = "Could not reach the room server. Run node server.js, then open this page from that address.";
@@ -6256,8 +6356,61 @@ async function joinRoom() {
 function leaveNetRoom() {
   if (window.ArenaNet) ArenaNet.close();
   room = null;
+  party = null;
+  queueing = false;
   netStatus = "";
   renderLobby();
+}
+
+async function createParty() {
+  readIdentity();
+  try {
+    await ensureOnline();
+    ArenaNet.partyCreate(playerName, setup.player);
+  } catch (err) {
+    netStatus = err.message || "Could not reach the server.";
+    renderLobby();
+  }
+}
+
+async function joinParty() {
+  readIdentity();
+  const code = ($("party-code-input") && $("party-code-input").value.trim()) || "";
+  if (!code) {
+    netStatus = "Enter a party code.";
+    renderLobby();
+    return;
+  }
+  try {
+    await ensureOnline();
+    ArenaNet.partyJoin(code, playerName, setup.player);
+  } catch (err) {
+    netStatus = err.message || "Could not reach the server.";
+    renderLobby();
+  }
+}
+
+async function queueBots() {
+  if (!party || !iLeadParty()) return;
+  readIdentity();
+  try {
+    await ensureOnline();
+    netStatus = "Starting a bot match…";
+    renderLobby();
+    ArenaNet.queueBots(setup.player, playerName);
+  } catch (err) {
+    netStatus = err.message || "Could not reach the server.";
+    renderLobby();
+  }
+}
+
+function leaveParty() {
+  if (window.ArenaNet && ArenaNet.connected) ArenaNet.partyLeave();
+  else {
+    party = null;
+    queueing = false;
+    renderLobby();
+  }
 }
 
 function startOnline() {
@@ -6309,20 +6462,36 @@ function renderLobby() {
     const foes = setup.enemies.map((id, i) => `<div class="section-label">Red fighter ${setup.size > 1 ? i + 1 : ""}</div><div class="team-row">${chips(`enemy-${i}`, id)}</div>`).join("");
     teams = `${partners}${foes}`;
   } else if (!room) {
+    const canQueue = !party || iLeadParty();
+    const queueLabel = party ? (queueing ? "Party in queue" : "Queue party") : (queueing ? "In queue" : "Find match");
+    const roster = party ? `<ul class="party-list">${party.members.map((member) => {
+      const cls = CLASSES[member.classId];
+      const you = window.ArenaNet && member.id === ArenaNet.id ? " (you)" : "";
+      const lead = member.id === party.leaderId ? "Leader" : "Member";
+      return `<li><b>${esc(member.name)}${you}</b><span>${esc(cls ? cls.name : "Fighter")} · ${lead}</span></li>`;
+    }).join("")}</ul>` : "";
     teams = `
       <div class="lobby-field">
         <input id="player-name" maxlength="16" value="${esc(playerName)}" placeholder="Your name" />
         <input id="server-url" value="${esc(defaultServer())}" placeholder="ws://127.0.0.1:8780" />
       </div>
+      ${party ? `<p class="room-code">${esc(party.code)}</p>${roster}<p class="map-note">Share the code. Your party stays on the same team. Vs bots fills the other side with random classes.</p>` : `<p class="map-note">Queue alone, or make a party so friends stay together.</p>`}
       <div class="lobby-field">
-        <button class="start-btn" id="find-match" type="button">${queueing ? "In queue" : "Find match"}</button>
-        ${queueing ? `<button class="text-btn" id="cancel-queue" type="button">Cancel</button>` : ""}
+        ${canQueue ? `<button class="start-btn" id="find-match" type="button">${queueLabel}</button>` : ""}
+        ${iLeadParty() ? `<button class="text-btn" id="queue-bots" type="button">${party.members.length}v${party.members.length} vs bots</button>` : ""}
+        ${queueing && canQueue ? `<button class="text-btn" id="cancel-queue" type="button">Cancel</button>` : ""}
+        ${party ? `<button class="text-btn" id="leave-party" type="button">Leave party</button>` : ""}
+      </div>
+      ${party ? "" : `<div class="lobby-field">
+        <button class="text-btn" id="create-party" type="button">Create party</button>
+        <input id="party-code-input" maxlength="5" placeholder="Party code" />
+        <button class="text-btn" id="join-party" type="button">Join party</button>
       </div>
       <div class="lobby-field">
         <button class="text-btn" id="host-room" type="button">Host room</button>
-        <input id="room-code-input" maxlength="5" placeholder="Code" />
-        <button class="text-btn" id="join-room" type="button">Join</button>
-      </div>
+        <input id="room-code-input" maxlength="5" placeholder="Room code" />
+        <button class="text-btn" id="join-room" type="button">Join room</button>
+      </div>`}
       <p class="net-status">${esc(netStatus)}</p>`;
   } else {
     const slots = (room.slots || []).map((slot, i) => {
@@ -6390,7 +6559,7 @@ function renderLobby() {
           <div class="dossier" id="dossier"></div>
         </section>
         <aside class="menu-panel">
-          <div class="section-label">${playMode === "local" && !room ? "Teams" : room ? "Room" : "Online"}</div>
+          <div class="section-label">${playMode === "local" && !room ? "Teams" : room ? "Room" : party ? "Party" : "Online"}</div>
           ${teams || `<p class="net-status">Pick a team size, then enter.</p>`}
           <div class="section-label">Keybinds</div>
           <p class="net-status">${esc(bindPrompt(picked))}</p>
@@ -6442,6 +6611,7 @@ function renderLobby() {
           }
         }
       }
+      if (party && window.ArenaNet && ArenaNet.connected) ArenaNet.partyClass(setup.player, playerName);
       renderLobby();
     });
   });
@@ -6504,6 +6674,10 @@ function renderLobby() {
   }
   if ($("find-match")) $("find-match").addEventListener("click", findMatch);
   if ($("cancel-queue")) $("cancel-queue").addEventListener("click", cancelQueue);
+  if ($("create-party")) $("create-party").addEventListener("click", createParty);
+  if ($("join-party")) $("join-party").addEventListener("click", joinParty);
+  if ($("leave-party")) $("leave-party").addEventListener("click", leaveParty);
+  if ($("queue-bots")) $("queue-bots").addEventListener("click", queueBots);
   if ($("host-room")) $("host-room").addEventListener("click", hostRoom);
   if ($("join-room")) $("join-room").addEventListener("click", joinRoom);
   if ($("leave-room")) $("leave-room").addEventListener("click", leaveNetRoom);
