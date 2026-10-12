@@ -7805,6 +7805,9 @@ let queueing = false;
 let netStatus = "";
 let playerName = "Player";
 let serverUrl = "";
+let onlineCount = null;
+let presencePromise = null;
+let onlineRetry = null;
 try {
   playerName = localStorage.getItem("arenaName") || "Player";
   serverUrl = localStorage.getItem("arenaServer") || "";
@@ -8249,13 +8252,23 @@ function onNetMessage(msg) {
     renderLobby();
     return;
   }
+  if (msg.t === "online") {
+    onlineCount = Math.max(0, Number(msg.count) || 0);
+    paintOnline();
+    return;
+  }
   if (msg.t === "closed") {
+    const dropped = !msg.reason;
+    if (dropped) onlineCount = -1;
+    const quiet = dropped && !(match && match.netRole !== "local");
     room = null;
     party = null;
     queueing = false;
-    netStatus = msg.reason || "Disconnected.";
+    if (!quiet) netStatus = msg.reason || "Disconnected.";
     if (match && match.netRole !== "local") returnToLobby();
-    else renderLobby();
+    else if (!quiet) renderLobby();
+    else paintOnline();
+    if (dropped) scheduleOnline();
     return;
   }
   if (msg.t === "created") {
@@ -8370,12 +8383,59 @@ function onNetMessage(msg) {
   }
 }
 
+function onlineLabel() {
+  if (onlineCount == null) return "Connecting…";
+  if (onlineCount < 0) return "Offline";
+  return onlineCount === 1 ? "1 player online" : `${onlineCount} players online`;
+}
+
+function paintOnline() {
+  const el = $("online-count");
+  if (!el) return;
+  el.textContent = onlineLabel();
+  el.classList.toggle("offline", onlineCount != null && onlineCount < 0);
+}
+
+function connectPresence() {
+  if (!window.ArenaNet) return Promise.reject(new Error("No network"));
+  if (ArenaNet.connected) return Promise.resolve();
+  if (presencePromise) return presencePromise;
+  presencePromise = ArenaNet.connect(defaultServer()).then(() => {
+    if (onlineRetry) {
+      clearTimeout(onlineRetry);
+      onlineRetry = null;
+    }
+  }).finally(() => {
+    presencePromise = null;
+  });
+  return presencePromise;
+}
+
+function scheduleOnline() {
+  if (onlineRetry || (window.ArenaNet && ArenaNet.connected)) return;
+  onlineRetry = setTimeout(() => {
+    onlineRetry = null;
+    watchOnline();
+  }, 5000);
+}
+
+async function watchOnline() {
+  if (!window.ArenaNet || ArenaNet.connected) return;
+  try {
+    await connectPresence();
+  } catch (err) {
+    onlineCount = -1;
+    paintOnline();
+    scheduleOnline();
+  }
+}
+
 async function ensureOnline() {
   readIdentity();
   if (window.ArenaNet && ArenaNet.connected) return;
   netStatus = "Connecting…";
   renderLobby();
-  await ArenaNet.connect(defaultServer());
+  await connectPresence();
 }
 
 async function findMatch() {
@@ -8628,6 +8688,7 @@ function renderLobby() {
           <button type="button" class="text-btn ${playMode === "online" ? "selected" : ""}" data-mode="online">Online</button>
           ${room ? "" : `${sizeBtn(1, "1v1")}${sizeBtn(2, "2v2")}${sizeBtn(3, "3v3")}<button type="button" class="text-btn" id="train">Training arena</button>`}
         </div>
+        <p class="online-count${onlineCount != null && onlineCount < 0 ? " offline" : ""}" id="online-count">${esc(onlineLabel())}</p>
         ${playMode === "local" && !room ? `<div class="map-pick">
           <span class="section-label">Training map</span>
           ${MAP_ORDER.map((id) => `<button type="button" class="text-btn ${trainMap === id ? "selected" : ""}" data-map="${id}">${MAPS[id].name}</button>`).join("")}
@@ -9128,6 +9189,7 @@ if (!window.HEADLESS) {
   window.addEventListener("load", () => {
     if (window.ArenaNet) ArenaNet.on(onNetMessage);
     renderLobby();
+    watchOnline();
     resizeCanvas();
     const stage = $("stage");
     if (window.ResizeObserver && stage) new ResizeObserver(() => resizeCanvas()).observe(stage);

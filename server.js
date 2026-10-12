@@ -32,6 +32,7 @@ const rooms = new Map();
 const parties = new Map();
 const queues = { 1: [], 2: [], 3: [] };
 const live = new Map();
+const online = new Set();
 const CLASS_IDS = new Set(["warrior", "mage", "hunter", "priest", "warlock", "druid", "rogue", "warden", "binder", "vow", "duelist"]);
 const HEALER_IDS = new Set(["priest", "druid", "warden", "vow"]);
 let nextId = 1;
@@ -253,6 +254,11 @@ function send(socket, obj) {
   try { sendRaw(socket, JSON.stringify(obj)); } catch (err) { /* closed */ }
 }
 
+function publishOnline() {
+  const count = online.size;
+  for (const member of online) send(member.socket, { t: "online", count });
+}
+
 function codeOf() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -348,6 +354,12 @@ function leave(member) {
   if (queued) publishQueue(queued);
   dropLive(member);
   leaveRoom(member);
+}
+
+function disconnect(member) {
+  if (!online.delete(member)) return;
+  leave(member);
+  publishOnline();
 }
 
 function onText(member, text) {
@@ -602,12 +614,14 @@ server.on("upgrade", (req, socket) => {
     "Sec-WebSocket-Accept: " + accept + "\r\n\r\n"
   );
   const member = { id: nextId++, name: "Player", classId: "warrior", socket, room: null, party: null, queueSize: 0, live: null, buf: Buffer.alloc(0) };
+  online.add(member);
+  publishOnline();
   socket.on("data", (chunk) => {
     member.buf = Buffer.concat([member.buf, chunk]);
     consume(member);
   });
-  socket.on("close", () => leave(member));
-  socket.on("error", () => leave(member));
+  socket.on("close", () => disconnect(member));
+  socket.on("error", () => disconnect(member));
 });
 
 setInterval(() => {
