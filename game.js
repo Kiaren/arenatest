@@ -7,7 +7,7 @@
  */
 
 const TUNE = {
-  gcd: 1.5,
+  gcd: 1,
   prep: 4,
   dampDelay: 12,
   dampEvery: 8,
@@ -184,10 +184,11 @@ const CLASSES = {
         cost: 10,
         cd: 0,
         castTime: 0,
+        gcd: false,
         range: 5,
         school: "physical",
         target: "enemy",
-        blurb: "Light damage and a 50% slow for 6 sec. The slow is physical and cannot be dispelled.",
+        blurb: "Light damage and a 50% slow for 6 sec. Off the global cooldown. The slow is physical and cannot be dispelled.",
         effect(source, target) {
           dealDamage(source, target, 48, { direct: true, school: "physical", name: "Cripple" });
           addAura(target, {
@@ -322,6 +323,40 @@ const CLASSES = {
           });
           floater(source, "Brace", "#e7c98a");
           combat(`${nameOf(source)} braces.`);
+        },
+      }),
+      spell({
+        id: "quake",
+        name: "Quake",
+        short: "Quake",
+        cost: 15,
+        cd: 35,
+        castTime: 0,
+        school: "physical",
+        target: "aoe",
+        radius: 8,
+        blurb: "Stuns enemies within 8 yards for 2 sec. Shares stun diminishing returns with Rush and Blindside.",
+        extra(source) {
+          const radius = this.radius || 8;
+          const hits = unitsInRadius(source, radius, (u) => u.team !== source.team && u.hp > 0 && !isHidden(u) && hasLoS(source, u));
+          if (!hits.length) return "Nobody in range";
+          return null;
+        },
+        effect(source) {
+          const radius = this.radius || 8;
+          const hits = unitsInRadius(source, radius, (u) => u.team !== source.team && u.hp > 0 && !isHidden(u) && hasLoS(source, u));
+          for (const foe of hits) {
+            applyControl(source, foe, {
+              id: "quake",
+              name: "Quake",
+              short: "Stun",
+              control: "stun",
+              dr: "stun",
+              duration: this.stunTime || 2,
+              dispellable: false,
+            });
+          }
+          combat(`${nameOf(source)} quakes the ground.`);
         },
       }),
       trinket(),
@@ -487,12 +522,14 @@ const CLASSES = {
         radius: 8,
         blurb: "Roots nearby enemies for up to 4 sec. Root diminishing returns. Magic, so it can be dispelled. Does not hit through walls or the bridge deck.",
         extra(source) {
-          const hits = unitsInRadius(source, 8, (u) => u.team !== source.team && u.hp > 0 && hasLoS(source, u));
+          const radius = this.radius || 8;
+          const hits = unitsInRadius(source, radius, (u) => u.team !== source.team && u.hp > 0 && hasLoS(source, u));
           if (!hits.length) return "Nobody in range";
           return null;
         },
         effect(source) {
-          const hits = unitsInRadius(source, 8, (u) => u.team !== source.team && u.hp > 0 && hasLoS(source, u));
+          const radius = this.radius || 8;
+          const hits = unitsInRadius(source, radius, (u) => u.team !== source.team && u.hp > 0 && hasLoS(source, u));
           if (!hits.length) {
             if (source.human) feedback(source, "Nobody in range");
             return;
@@ -529,16 +566,17 @@ const CLASSES = {
           dealDamage(source, target, 130, { direct: true, school: "magic", name: "Sear" });
           if (match.reflectLock) return;
           const prev = source.auras.find((a) => a.id === "hotStreak");
-          const stacks = Math.min(3, (prev?.stacks || 0) + 1);
+          const cap = source.hotNeed || 3;
+          const stacks = Math.min(cap, (prev?.stacks || 0) + 1);
           addAura(source, {
             id: "hotStreak",
             name: "Wildfire",
-            short: stacks >= 3 ? "Hot!" : `Hot ${stacks}`,
+            short: stacks >= cap ? "Hot!" : `Hot ${stacks}`,
             type: "buff",
             remaining: 15,
             stacks,
           });
-          floater(source, stacks >= 3 ? "Wildfire" : `Hot ${stacks}`, "#ffb45a");
+          floater(source, stacks >= cap ? "Wildfire" : `Hot ${stacks}`, "#ffb45a");
         },
       }),
       spell({
@@ -796,6 +834,26 @@ const CLASSES = {
             duration: 3,
             dispellable: false,
           });
+        },
+      }),
+      spell({
+        id: "finishShot",
+        name: "Finish Shot",
+        short: "Finish",
+        cost: 35,
+        cd: 10,
+        castTime: 0,
+        range: 35,
+        minRange: 8,
+        school: "physical",
+        target: "enemy",
+        blurb: "A heavy shot, only against a target at or below 20% health. No effect inside 8 yards.",
+        extra(_source, target) {
+          if (!target || target.hp / target.hpMax > 0.2) return "Target above 20%";
+          return null;
+        },
+        effect(source, target) {
+          dealDamage(source, target, 320, { direct: true, school: "physical", name: "Finish Shot" });
         },
       }),
       trinket(),
@@ -1057,6 +1115,32 @@ const CLASSES = {
           combat(`${nameOf(source)} blesses ${nameOf(target)}.`);
         },
       }),
+      spell({
+        id: "speedBlessing",
+        name: "Speed Blessing",
+        short: "Speed",
+        cost: 12,
+        charges: 3,
+        recharge: 18,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "The ally moves 50% faster for 8 sec. Three charges, and one charge returns every 18 sec. Cast it on yourself if you have yourself targeted. Magic, so it can be purged.",
+        effect(source, target) {
+          addAura(target, {
+            id: "speedBlessing",
+            name: "Speed Blessing",
+            short: "Spd",
+            type: "buff",
+            remaining: 8,
+            speed: 0.5,
+            dispellable: true,
+          });
+          floater(target, "Speed", "#f7f4ff");
+          combat(`${nameOf(source)} blesses ${nameOf(target)} with speed.`);
+        },
+      }),
       trinket(),
       spell({
         id: "desperatePrayer",
@@ -1300,6 +1384,31 @@ const CLASSES = {
           combat(`${nameOf(source)} withers ${nameOf(target)}.`);
         },
       }),
+      spell({
+        id: "umbralShell",
+        name: "Umbral Shell",
+        short: "Shell",
+        cost: 16,
+        cd: 25,
+        castTime: 0,
+        school: "magic",
+        target: "self",
+        blurb: "A shadow shell absorbs damage for 8 sec. Magic, so it can be purged. Dampening reduces the absorb.",
+        effect(source) {
+          const amount = Math.round(260 * (1 - currentDamp()));
+          addAura(source, {
+            id: "umbralShell",
+            name: "Umbral Shell",
+            short: "Sh",
+            type: "buff",
+            remaining: 8,
+            absorb: amount,
+            dispellable: true,
+          });
+          floater(source, "Shell", "#6b4cff");
+          combat(`${nameOf(source)} raises an Umbral Shell.`);
+        },
+      }),
       trinket(),
       spell({
         id: "healthstone",
@@ -1524,6 +1633,26 @@ const CLASSES = {
           });
         },
       }),
+      spell({
+        id: "clearbloom",
+        name: "Clearbloom",
+        short: "Clear",
+        cost: 12,
+        cd: 8,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "Removes one harmful magic effect from an ally. Dispelling Volatile Curse damages you.",
+        extra(_source, target) {
+          if (!target) return "No target";
+          if (!pickDispel(target, "help")) return "Nothing to dispel";
+          return null;
+        },
+        effect(source, target) {
+          dispelHelp(source, target);
+        },
+      }),
       trinket(),
       spell({
         id: "ironbark",
@@ -1729,6 +1858,29 @@ const CLASSES = {
           source.auras = source.auras.filter((a) => a.control !== "root");
           blinkMove(source, Math.cos(ang), Math.sin(ang), travel);
           combat(`${nameOf(source)} steps to ${nameOf(target)}.`);
+        },
+      }),
+      spell({
+        id: "tendon",
+        name: "Tendon",
+        short: "Tendon",
+        cost: 15,
+        cd: 0,
+        castTime: 0,
+        range: 5,
+        school: "physical",
+        target: "enemy",
+        blurb: "Melee cut. Light damage and a 50% slow for 6 sec. The slow is physical and cannot be dispelled.",
+        effect(source, target) {
+          dealDamage(source, target, 40, { direct: true, school: "physical", name: "Tendon" });
+          addAura(target, {
+            id: "tendon",
+            name: "Tendon",
+            short: "Tn",
+            type: "debuff",
+            remaining: 6,
+            slow: 0.5,
+          });
         },
       }),
       trinket(),
@@ -1973,6 +2125,35 @@ const CLASSES = {
           heal(source, target, 320, "Tend");
         },
       }),
+      spell({
+        id: "wickstep",
+        name: "Wickstep",
+        short: "Step",
+        cost: 8,
+        cd: 20,
+        castTime: 0,
+        school: "magic",
+        target: "self",
+        blurb: "Teleport to your lantern and clear your roots. Blocked by silence and interrupt lockouts.",
+        extra(source) {
+          const lantern = lanternOf(source);
+          if (!lantern) return "No lantern";
+          if (dist(source, lantern) < 2) return "Already there";
+          return null;
+        },
+        effect(source) {
+          const lantern = lanternOf(source);
+          if (!lantern) return;
+          source.x = lantern.x;
+          source.y = lantern.y;
+          source.height = lantern.h || 0;
+          source.vx = 0;
+          source.vy = 0;
+          source.auras = source.auras.filter((a) => a.control !== "root");
+          clampUnit(source);
+          combat(`${nameOf(source)} steps to the lantern.`);
+        },
+      }),
       trinket(),
       spell({
         id: "beacon",
@@ -2106,7 +2287,7 @@ const CLASSES = {
             t: travel,
             yank: true,
             yankFrom: source.id,
-            stun: chainStacks(source, target) >= 3,
+            stun: chainStacks(source, target) >= (source.yankStunAt || 3),
           };
           combat(`${nameOf(source)} yanks ${nameOf(target)}.`);
         },
@@ -2229,6 +2410,31 @@ const CLASSES = {
           if (tryReflect(source, target, this)) return;
           dealDamage(source, target, 70, { direct: true, school: "magic", name: "Barbs" });
           if (target.hp > 0 && !immune(target)) addChain(source, target);
+        },
+      }),
+      spell({
+        id: "bulwark",
+        name: "Bulwark",
+        short: "Wall",
+        cost: 14,
+        cd: 25,
+        castTime: 0,
+        school: "magic",
+        target: "self",
+        blurb: "A chained ward absorbs damage for 8 sec. Magic, so it can be purged. Dampening reduces the absorb.",
+        effect(source) {
+          const amount = Math.round(220 * (1 - currentDamp()));
+          addAura(source, {
+            id: "bulwark",
+            name: "Bulwark",
+            short: "Bw",
+            type: "buff",
+            remaining: 8,
+            absorb: amount,
+            dispellable: true,
+          });
+          floater(source, "Bulwark", "#e23d4a");
+          combat(`${nameOf(source)} raises a Bulwark.`);
         },
       }),
       trinket(),
@@ -2463,6 +2669,42 @@ const CLASSES = {
           if (partner && partner.hp > 0) heal(source, partner, 160, "Comfort");
         },
       }),
+      spell({
+        id: "exchange",
+        name: "Exchange",
+        short: "Swap",
+        cost: 0,
+        cd: 30,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "Trade places with an ally and clear both of your roots. If you have yourself targeted, it swaps you with your partner.",
+        extra(source, target) {
+          const partner = target && target !== source ? target : livingPartner(source);
+          if (!partner) return "No ally";
+          return null;
+        },
+        effect(source, target) {
+          const partner = target && target !== source ? target : livingPartner(source);
+          if (!partner) return;
+          const spot = { x: source.x, y: source.y, h: source.height || 0 };
+          source.x = partner.x;
+          source.y = partner.y;
+          source.height = partner.height || 0;
+          partner.x = spot.x;
+          partner.y = spot.y;
+          partner.height = spot.h;
+          source.vx = source.vy = partner.vx = partner.vy = 0;
+          source.auras = source.auras.filter((a) => a.control !== "root");
+          partner.auras = partner.auras.filter((a) => a.control !== "root");
+          clampUnit(source);
+          clampUnit(partner);
+          floater(source, "Swap", "#f2a3c7");
+          floater(partner, "Swap", "#f2a3c7");
+          combat(`${nameOf(source)} exchanges places with ${nameOf(partner)}.`);
+        },
+      }),
       trinket(),
       spell({
         id: "unity",
@@ -2692,6 +2934,29 @@ const CLASSES = {
           dealDamage(source, target, marked ? 230 : 150, { direct: true, school: "physical", name: "Flourish" });
         },
       }),
+      spell({
+        id: "tempo",
+        name: "Tempo",
+        short: "Tempo",
+        cost: 20,
+        cd: 12,
+        castTime: 0,
+        school: "physical",
+        target: "self",
+        blurb: "Spend Momentum to move 50% faster for 5 sec. Physical, so it cannot be purged.",
+        effect(source) {
+          addAura(source, {
+            id: "tempo",
+            name: "Tempo",
+            short: "Tmp",
+            type: "buff",
+            remaining: 5,
+            speed: 0.5,
+          });
+          floater(source, "Tempo", "#8eb0ff");
+          combat(`${nameOf(source)} finds their tempo.`);
+        },
+      }),
       trinket(),
       spell({
         id: "isolate",
@@ -2735,6 +3000,1449 @@ for (const cls of Object.values(CLASSES)) {
     else if (ability.tag === "Signature") ability.key = "f";
     else ability.key = SPELL_KEYS[spellKey++];
     ability.tag = ability.tag || (ability.id === "trinket" ? "Trinket" : "Spell");
+  }
+}
+
+function opt(id, name, text, apply) {
+  return { id, name, text, apply };
+}
+function row(id, name, choices) {
+  return { id, name, choices };
+}
+function spellOf(unit, id) {
+  return unit.abilities.find((a) => a.id === id);
+}
+function giveCharges(ability, count, recharge) {
+  ability.charges = count;
+  ability.recharge = recharge == null ? (ability.recharge || ability.cd || 8) : recharge;
+  ability.cd = 0;
+}
+function retouch(ability, fn) {
+  const prev = ability.effect;
+  ability.effect = function (source, target) {
+    prev.call(this, source, target);
+    fn(source, target);
+  };
+}
+function stretch(host, id, extra, fields) {
+  const aura = host && host.auras && host.auras.find((a) => a.id === id);
+  if (!aura) return;
+  if (extra) aura.remaining += extra;
+  if (fields) Object.assign(aura, fields);
+}
+function refundCharge(unit, abilityId) {
+  const ability = spellOf(unit, abilityId);
+  if (!ability || !ability.charges) return;
+  const max = ability.charges;
+  const cur = unit.charges[abilityId] == null ? max : unit.charges[abilityId];
+  if (cur >= max) return;
+  unit.charges[abilityId] = cur + 1;
+  if (unit.charges[abilityId] >= max) unit.recharge[abilityId] = 0;
+}
+
+function hasSlow(target) {
+  return !!(target && target.hp > 0 && target.auras.some((a) => a.slow));
+}
+
+function hasRoot(target) {
+  return !!(target && target.hp > 0 && target.auras.some((a) => a.control === "root"));
+}
+
+function clearSlows(unit) {
+  if (!unit) return;
+  unit.auras = unit.auras.filter((a) => !a.slow);
+}
+
+function clearRoots(unit) {
+  if (!unit) return;
+  unit.auras = unit.auras.filter((a) => a.control !== "root");
+}
+
+function procReady(source, key, targetId, seconds) {
+  if (!source.talentIcd) source.talentIcd = {};
+  const slot = `${key}:${targetId}`;
+  const at = source.talentIcd[slot];
+  if (at != null && match.time - at < seconds) return false;
+  source.talentIcd[slot] = match.time;
+  return true;
+}
+
+function pressControl(source, target, key, name, control, seconds) {
+  if (!target || target.hp <= 0) return;
+  if (!procReady(source, key, target.id, 15)) return;
+  applyControl(source, target, {
+    id: key,
+    name,
+    short: control === "stun" ? "Stun" : control === "fear" ? "Fear" : control === "silence" ? "Si" : "Root",
+    control,
+    dr: control,
+    duration: seconds || 2,
+    dispellable: control !== "stun" && control !== "root",
+  });
+}
+
+function chainInstant(spell, fn) {
+  const prev = spell.instantWhen;
+  spell.instantWhen = (unit, on) => !!(prev && prev(unit, on)) || !!fn(unit, on);
+}
+
+function grantSpeed(target, seconds, amount) {
+  addAura(target, {
+    id: "talentSpeed",
+    name: "Haste",
+    short: "Spd",
+    type: "buff",
+    remaining: seconds,
+    speed: amount,
+    dispellable: true,
+  });
+}
+
+const TALENTS = {
+  warrior: [
+    row("damage", "Damage", [
+      opt("sunderCharges", "Twin Sunder", "Sundering Blow has 2 charges.", (unit) => {
+        const spell = spellOf(unit, "mortalStrike");
+        giveCharges(spell, 2, 6);
+        spell.blurb = "Two charges. A heavy strike that cuts healing received by 50% for 8 sec. Each charge returns after 6 sec.";
+      }),
+      opt("pressReset", "Press the Wound", "Press has 2 charges. Sundering Blow restores 1 charge of Press.", (unit) => {
+        const press = spellOf(unit, "overpower");
+        giveCharges(press, 2, 4);
+        press.blurb = "Two charges. A quick strike. Each charge returns after 4 sec. Sundering Blow restores one charge.";
+        retouch(spellOf(unit, "mortalStrike"), (source) => refundCharge(source, "overpower"));
+      }),
+      opt("deepFinish", "Early Finish", "Finish can be used below 35% health.", (unit) => {
+        const spell = spellOf(unit, "execute");
+        spell.extra = function (_source, target) {
+          if (!target || target.hp / target.hpMax > 0.35) return "Needs a target below 35%";
+          return null;
+        };
+        spell.blurb = "Only usable below 35% health. A large finisher.";
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("rushClose", "Close the Gap", "Rush works from 5 yards and its cooldown is 12 sec.", (unit) => {
+        const spell = spellOf(unit, "charge");
+        spell.minRange = 5;
+        spell.cd = 12;
+        spell.blurb = "Rush an enemy 5–25 yards away, stunning them for 1.5 sec and generating 20 Rage. Clears your roots. Off the global cooldown.";
+      }),
+      opt("vaultReady", "Second Vault", "Vault's cooldown is 22 sec and it reaches 48 yards.", (unit) => {
+        const spell = spellOf(unit, "heroicLeap");
+        spell.cd = 22;
+        spell.range = 48;
+        spell.blurb = "Aim a spot 8–48 yards away and leap there, clearing roots. You arc over walls and the bridge. 22 sec cooldown.";
+      }),
+      opt("clearPath", "Break Free", "Rush and Vault also clear slows.", (unit) => {
+        retouch(spellOf(unit, "charge"), (source) => { source.auras = source.auras.filter((a) => !a.slow); });
+        retouch(spellOf(unit, "heroicLeap"), (source) => { source.auras = source.auras.filter((a) => !a.slow); });
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longBash", "Heavy Bash", "Bash locks cast-time and magic abilities for 6 sec.", (unit) => {
+        const spell = spellOf(unit, "pummel");
+        spell.effect = function (source, target) { interruptUnit(source, target, 6); };
+        spell.blurb = "Interrupts a cast and locks cast-time and magic abilities for 6 sec. Off the global cooldown.";
+      }),
+      opt("longCripple", "Hobble", "Crippling a target who is already crippled roots them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "hamstring");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.hp > 0 && target.auras.some((a) => a.id === "hamstring"));
+          prev.call(this, source, target);
+          if (!already) return;
+          if (!source.hobbleAt) source.hobbleAt = {};
+          if (source.hobbleAt[target.id] != null && match.time - source.hobbleAt[target.id] < 15) return;
+          source.hobbleAt[target.id] = match.time;
+          applyControl(source, target, {
+            id: "hobbleRoot",
+            name: "Hobble",
+            short: "Root",
+            control: "root",
+            dr: "root",
+            duration: 2,
+            dispellable: false,
+          });
+        };
+        spell.blurb = "Light damage and a 50% slow for 6 sec. Off the global cooldown. If they are already crippled, they are rooted for 2 sec. That root can happen once every 15 sec on each target. The slow is physical and cannot be dispelled.";
+      }),
+      opt("wideQuake", "Wide Quake", "Quake reaches enemies within 11 yards.", (unit) => {
+        const spell = spellOf(unit, "quake");
+        spell.radius = 11;
+        spell.blurb = "Stuns enemies within 11 yards for 2 sec. Shares stun diminishing returns with Rush and Blindside.";
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("thickBrace", "Iron Brace", "Brace reduces damage by 40% for 5 sec.", (unit) => {
+        retouch(spellOf(unit, "brace"), (source) => stretch(source, "brace", 1, { damageReduce: 0.4 }));
+      }),
+      opt("longWard", "Held Mirror", "Mirror Ward lasts 8 sec.", (unit) => {
+        retouch(spellOf(unit, "spellReflection"), (source) => stretch(source, "spellReflection", 3));
+      }),
+      opt("cheapBrace", "Last Brace", "Brace costs no Rage below 40% health.", (unit) => {
+        const spell = spellOf(unit, "brace");
+        spell.costOf = (caster) => (caster.hp / caster.hpMax < 0.4 ? 0 : spell.cost);
+        spell.blurb = "Harden for 4 sec, taking 30% less damage. Costs no Rage below 40% health. Physical, so it cannot be purged.";
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("deepSunder", "Deep Cut", "Sundered lasts 12 sec.", (unit) => {
+        retouch(spellOf(unit, "mortalStrike"), (_source, target) => stretch(target, "mortalWounds", 4));
+      }),
+      opt("quakeLock", "Aftershock", "Quake stuns for 3 sec.", (unit) => {
+        const spell = spellOf(unit, "quake");
+        spell.stunTime = 3;
+        spell.blurb = `Stuns enemies within ${spell.radius || 8} yards for 3 sec. Shares stun diminishing returns with Rush and Blindside.`;
+      }),
+      opt("heavyHands", "Battle Rhythm", "Auto attacks generate 18 Rage.", (unit) => { unit.rageOnSwing = 18; }),
+    ]),
+  ],
+  mage: [
+    row("damage", "Damage", [
+      opt("bitterChill", "Deep Freeze", "Chill Spike roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "frostbolt");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "deepFreeze", "Deep Freeze", "root");
+        };
+        spell.blurb = "2 sec cast. Damage and a slow. If they are already slowed, they are rooted for 2 sec. That root can happen once every 15 sec on each target.";
+      }),
+      opt("quickSear", "Heat Bank", "Ember Burst has 2 charges. Sear restores one charge.", (unit) => {
+        const burst = spellOf(unit, "fireBlast");
+        giveCharges(burst, 2, 8);
+        burst.blurb = "Two charges. Instant fire damage. Each charge returns after 8 sec. Sear restores one charge. Usable while moving.";
+        const sear = spellOf(unit, "scorch");
+        const prev = sear.effect;
+        sear.effect = function (source, target) {
+          prev.call(this, source, target);
+          refundCharge(source, "fireBlast");
+        };
+      }),
+      opt("earlyInferno", "Kindling", "Inferno is instant at 2 Wildfire stacks.", (unit) => {
+        unit.hotNeed = 2;
+        spellOf(unit, "scorch").blurb = "1.5 sec cast while moving. Fire damage and a Wildfire stack for 15 sec. At 2 stacks, Inferno is instant.";
+        spellOf(unit, "pyroblast").blurb = "2.5 sec cast. Heavy fire damage. Instant after 2 Wildfire stacks, which this spends.";
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("longShift", "Winter Step", "Shift roots enemies within 8 yards of the spot you left.", (unit) => {
+        const spell = spellOf(unit, "blink");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const spot = { x: source.x, y: source.y, height: source.height, team: source.team };
+          prev.call(this, source);
+          for (const foe of unitsInRadius(spot, 8, (u) => u.team !== source.team && u.hp > 0)) {
+            applyControl(source, foe, { id: "winterStep", name: "Winter Step", short: "Root", control: "root", dr: "root", duration: 2, dispellable: true });
+          }
+        };
+        spell.blurb = "Teleport forward. Clears roots and slows. Enemies within 8 yards of where you left are rooted for 2 sec.";
+      }),
+      opt("quickShift", "Twin Shift", "Shift has 2 charges.", (unit) => {
+        const spell = spellOf(unit, "blink");
+        giveCharges(spell, 2, 15);
+        spell.blurb = "Two charges. Teleport forward 14 yards. Clears roots and slows. Each charge returns after 15 sec.";
+      }),
+      opt("wideRime", "Shatter Rime", "Rime stuns enemies who are already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "frostNova");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const radius = spell.radius || 8;
+          const primed = foesOf(source).filter((foe) => hasSlow(foe) && dist(source, foe) <= radius && hasLoS(source, foe));
+          prev.call(this, source);
+          for (const foe of primed) pressControl(source, foe, "shatterRime", "Rime", "stun");
+        };
+        spell.blurb = "Roots nearby enemies. Enemies who were already slowed are also stunned for 2 sec, once every 15 sec on each target.";
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longQuell", "Quell Heat", "Ember Burst has 2 charges. A successful Quell restores one.", (unit) => {
+        const burst = spellOf(unit, "fireBlast");
+        giveCharges(burst, 2, 8);
+        const spell = spellOf(unit, "counterspell");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const casting = !!(target && target.cast);
+          prev.call(this, source, target);
+          if (casting) refundCharge(source, "fireBlast");
+        };
+      }),
+      opt("longFigment", "Brittle Image", "Figment is instant against a slowed target.", (unit) => {
+        const spell = spellOf(unit, "polymorph");
+        spell.instantOnSlow = true;
+        spell.blurb = "1.5 sec cast, instant if the target is slowed. Turns them into a harmless figment for up to 5 sec. Breaks on damage.";
+      }),
+      opt("burstCharges", "Cold Inferno", "Inferno is instant against a slowed target.", (unit) => {
+        const spell = spellOf(unit, "pyroblast");
+        spell.instantOnSlow = true;
+        spell.blurb = "2.5 sec cast. Instant after Wildfire, and also instant against a slowed target. Heavy fire damage.";
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("thickWard", "Ward Chill", "Ember Ward slows enemies within 8 yards when you cast it.", (unit) => {
+        retouch(spellOf(unit, "emberWard"), (source) => {
+          for (const foe of unitsInRadius(source, 8, (u) => u.team !== source.team && u.hp > 0)) {
+            addAura(foe, { id: "wardChill", name: "Ward Chill", short: "Sn", type: "debuff", remaining: 4, slow: 0.5, dispellable: true });
+          }
+        });
+      }),
+      opt("deepGlacier", "Through Silence", "Glacier can be used while silenced or school-locked.", (unit) => {
+        const spell = spellOf(unit, "iceBlock");
+        spell.ignoreLock = true;
+        spell.blurb = "You become immune. Usable while silenced or school-locked. You cannot act while it holds.";
+      }),
+      opt("readyWard", "Ward Step", "Shift has 2 charges. Ember Ward restores one.", (unit) => {
+        const shift = spellOf(unit, "blink");
+        giveCharges(shift, 2, 15);
+        retouch(spellOf(unit, "emberWard"), (source) => refundCharge(source, "blink"));
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("punishChill", "Rime Fear", "Rime fears enemies who are already rooted for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "frostNova");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const radius = spell.radius || 8;
+          const primed = foesOf(source).filter((foe) => hasRoot(foe) && dist(source, foe) <= radius);
+          prev.call(this, source);
+          for (const foe of primed) pressControl(source, foe, "rimeFear", "Rime", "fear");
+        };
+      }),
+      opt("quickQuell", "Quell Slow", "Quell also applies a 50% slow for 4 sec.", (unit) => {
+        retouch(spellOf(unit, "counterspell"), (source, target) => {
+          if (!target || target.hp <= 0) return;
+          addAura(target, { id: "quellSlow", name: "Quell", short: "Sn", type: "debuff", remaining: 4, slow: 0.5, dispellable: true });
+        });
+      }),
+      opt("rimeChill", "Banked Sear", "Sear has 2 charges. Chill Spike restores one.", (unit) => {
+        const sear = spellOf(unit, "scorch");
+        giveCharges(sear, 2, 6);
+        sear.blurb = "Two charges. 1.5 sec cast while moving. Chill Spike restores one charge.";
+        const bolt = spellOf(unit, "frostbolt");
+        const prev = bolt.effect;
+        bolt.effect = function (source, target) {
+          prev.call(this, source, target);
+          refundCharge(source, "scorch");
+        };
+      }),
+    ]),
+  ],
+  hunter: [
+    row("damage", "Damage", [
+      opt("heavyAim", "Open Shot", "Longshot is instant if the target is slowed or rooted.", (unit) => {
+        const spell = spellOf(unit, "aimedShot");
+        spell.instantOnSlow = true;
+        spell.instantOnRoot = true;
+        spell.blurb = "2.1 sec cast while moving, instant if the target is slowed or rooted. Heavy damage.";
+      }),
+      opt("twinDaze", "Twin Daze", "Dazing Shot has 2 charges.", (unit) => {
+        const spell = spellOf(unit, "concussiveShot");
+        giveCharges(spell, 2, 6);
+        spell.blurb = "Two charges. Instant shot that slows by 50% for 5 sec. Each charge returns after 6 sec. Dead zone inside 8 yards.";
+      }),
+      opt("openFinish", "Any Finish", "Finish Shot can be used at any health.", (unit) => {
+        const spell = spellOf(unit, "finishShot");
+        spell.extra = function () { return null; };
+        spell.blurb = "Instant heavy shot. Usable at any health. Dead zone inside 8 yards.";
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("quickBack", "Trap Step", "Backstep drops a Snare Trap where you were standing.", (unit) => {
+        const spell = spellOf(unit, "disengage");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const old = { x: source.x, y: source.y, h: source.height || 0 };
+          prev.call(this, source);
+          match.traps = match.traps.filter((t) => t.ownerId !== source.id);
+          match.traps.push({
+            ownerId: source.id, team: source.team, x: old.x, y: old.y, h: old.h,
+            arm: 0.7, life: 25, radius: 3, silence: !!source.trapSilence,
+          });
+        };
+        spell.blurb = "Shoves you backward and leaves a Snare Trap where you were. Clears roots.";
+      }),
+      opt("clearBack", "Slip Away", "Backstep also clears slows.", (unit) => {
+        retouch(spellOf(unit, "disengage"), (source) => clearSlows(source));
+      }),
+      opt("closePin", "Point Blank", "Pin can be used inside the dead zone.", (unit) => {
+        const spell = spellOf(unit, "pin");
+        spell.minRange = 0;
+        spell.blurb = "A pinning shot roots the target for up to 3 sec. Root diminishing returns. Physical, so it cannot be dispelled. Works at any range up to 35 yards.";
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longQuiet", "Quiet Root", "Quiet Shot roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "silencingShot");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "quietRoot", "Quiet Shot", "root");
+        };
+      }),
+      opt("longPin", "Pin Down", "Pinning a target who is already rooted stuns them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "pin");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasRoot(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "pinStun", "Pin", "stun");
+        };
+      }),
+      opt("readyTrap", "Gag Trap", "Your Snare Trap also silences the victim for 3 sec.", (unit) => {
+        unit.trapSilence = true;
+        retouch(spellOf(unit, "freezingTrap"), (source) => {
+          const trap = [...match.traps].reverse().find((t) => t.ownerId === source.id);
+          if (trap) trap.silence = true;
+        });
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("longDeflect", "Slip Deflect", "Deflect also clears roots and slows.", (unit) => {
+        retouch(spellOf(unit, "deterrence"), (source) => { clearRoots(source); clearSlows(source); });
+      }),
+      opt("readyPlay", "Drop and Slip", "Play Dead also clears roots and slows.", (unit) => {
+        retouch(spellOf(unit, "feignDeath"), (source) => { clearRoots(source); clearSlows(source); });
+      }),
+      opt("cheapBack", "Deflect Rush", "Deflect also grants 50% movement speed for 4 sec.", (unit) => {
+        retouch(spellOf(unit, "deterrence"), (source) => grantSpeed(source, 4, 0.5));
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("longDaze", "Daze Lock", "Dazing Shot stuns a rooted target for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "concussiveShot");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasRoot(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "dazeStun", "Dazing Shot", "stun");
+        };
+      }),
+      opt("ankleLong", "Hobble Cut", "Ankle Cutting a target who is already cut roots them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "wingClip");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.auras.some((a) => a.id === "wingClip"));
+          prev.call(this, source, target);
+          if (already) pressControl(source, target, "ankleRoot", "Ankle Cut", "root");
+        };
+      }),
+      opt("finishReady", "Follow Through", "Finish Shot resets Pin.", (unit) => {
+        retouch(spellOf(unit, "finishShot"), (source) => { source.cd.pin = 0; });
+      }),
+    ]),
+  ],
+  priest: [
+    row("damage", "Damage", [
+      opt("quickSalve", "Crisis Salve", "Salve is instant on a target at or below 35% health.", (unit) => {
+        const spell = spellOf(unit, "flashHeal");
+        spell.instantLow = 0.35;
+        spell.blurb = "1.5 sec heal, instant at or below 35% health. If an enemy is targeted, it heals you.";
+      }),
+      opt("longAche", "Second Ache", "Aching a target who already has it silences them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "shadowWordPain");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.auras.some((a) => a.id === "swp"));
+          prev.call(this, source, target);
+          if (already && target && procReady(source, "acheSilence", target.id, 15)) silenceUnit(source, target, 2);
+        };
+      }),
+      opt("spikeCharges", "Banked Spike", "Thought Spike has 2 charges. Aegis restores one.", (unit) => {
+        const spike = spellOf(unit, "mindBlast");
+        giveCharges(spike, 2, 8);
+        spike.blurb = "Two charges. Aegis restores one charge.";
+        retouch(spellOf(unit, "powerWordShield"), (source) => refundCharge(source, "mindBlast"));
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("longSpeed", "Unstoppable", "Speed Blessing also clears roots and slows.", (unit) => {
+        retouch(spellOf(unit, "speedBlessing"), (_source, target) => { clearRoots(target); clearSlows(target); });
+      }),
+      opt("extraSpeed", "Shared Speed", "Speed Blessing on an ally also speeds you.", (unit) => {
+        retouch(spellOf(unit, "speedBlessing"), (source, target) => {
+          if (!target || target === source) return;
+          addAura(source, { id: "speedBlessing", name: "Speed Blessing", short: "Spd", type: "buff", remaining: 8, speed: 0.5, dispellable: true });
+        });
+      }),
+      opt("quickWail", "Wail Lock", "Wail stuns enemies who are already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "psychicScream");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const primed = foesOf(source).filter((foe) => hasSlow(foe) && dist(source, foe) <= 8);
+          prev.call(this, source);
+          for (const foe of primed) pressControl(source, foe, "wailStun", "Wail", "stun");
+        };
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("quickCleanse", "Cleanse Step", "A Cleanse that removes a control also grants 50% speed for 4 sec.", (unit) => {
+        const spell = spellOf(unit, "dispelMagic");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const aura = target && pickDispel(target, "help");
+          const control = aura && aura.control;
+          prev.call(this, source, target);
+          if (control) grantSpeed(target, 4, 0.5);
+        };
+      }),
+      opt("openAegis", "Open Aegis", "Aegis does not apply Spent Soul.", (unit) => {
+        const spell = spellOf(unit, "powerWordShield");
+        spell.extra = function (_source, target) {
+          if (!target) return "No target";
+          if (hasAura(target, "powerWordShield")) return "Already shielded";
+          return null;
+        };
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          prev.call(this, source, target);
+          if (target) target.auras = target.auras.filter((a) => a.id !== "weakenedSoul");
+        };
+        spell.blurb = "Absorbs damage for 15 sec. Does not leave Spent Soul. The shield is magic and can be purged.";
+      }),
+      opt("longBless", "Blessed Salve", "Salve is instant on an ally with Blessing.", (unit) => {
+        chainInstant(spellOf(unit, "flashHeal"), (_unit, on) => !!(on && on.auras.some((a) => a.id === "blessing")));
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("readyPlea", "Plea Cleanse", "Last Plea also removes a harmful magic effect from you.", (unit) => {
+        retouch(spellOf(unit, "desperatePrayer"), (source) => dispelHelp(source, source));
+      }),
+      opt("quickLitany", "Crisis Litany", "Litany is instant on a target at or below 40% health.", (unit) => {
+        const spell = spellOf(unit, "penance");
+        spell.instantLow = 0.4;
+        spell.blurb = "2 sec channel, instant at or below 40% health. Three bolts. Heals an ally or damages an enemy.";
+      }),
+      opt("thickAegis", "Burst Aegis", "When Aegis breaks, that ally gains 50% speed for 3 sec.", (unit) => {
+        retouch(spellOf(unit, "powerWordShield"), (_source, target) => {
+          const aura = target && target.auras.find((a) => a.id === "powerWordShield");
+          if (aura) aura.breakSpeed = 0.5;
+        });
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("longWail", "Wail Slow", "Wail also slows enemies by 50% for 4 sec.", (unit) => {
+        retouch(spellOf(unit, "psychicScream"), (source) => {
+          for (const foe of foesOf(source)) {
+            if (dist(source, foe) > 8 || foe.hp <= 0) continue;
+            addAura(foe, { id: "wailSlow", name: "Wail", short: "Sn", type: "debuff", remaining: 4, slow: 0.5, dispellable: true });
+          }
+        });
+      }),
+      opt("cheapSpike", "Execute Spike", "Thought Spike is instant on a target at or below 30% health.", (unit) => {
+        const spell = spellOf(unit, "mindBlast");
+        spell.instantLow = 0.3;
+      }),
+      opt("salveBloom", "Shielded Salve", "Salve is instant on an ally who has Aegis.", (unit) => {
+        chainInstant(spellOf(unit, "flashHeal"), (_unit, on) => !!(on && on.auras.some((a) => a.id === "powerWordShield")));
+      }),
+    ]),
+  ],
+  warlock: [
+    row("damage", "Damage", [
+      opt("quickGloom", "Cursed Bolt", "Gloom Bolt is instant if the target has Rot, Torment, and Volatile Curse.", (unit) => {
+        const spell = spellOf(unit, "shadowBolt");
+        spell.instantOnCurses = true;
+        spell.blurb = "2 sec cast, instant if the target has Rot, Torment, and Volatile Curse.";
+      }),
+      opt("longRot", "Rot Fear", "Rotting a target who already has Rot fears them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "corruption");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.auras.some((a) => a.id === "corruption"));
+          prev.call(this, source, target);
+          if (already) pressControl(source, target, "rotFear", "Rot", "fear");
+        };
+      }),
+      opt("harshTorment", "Wither Silence", "Wither silences a target who has Rot for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "wither");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const rot = !!(target && target.auras.some((a) => a.id === "corruption"));
+          prev.call(this, source, target);
+          if (rot && target && procReady(source, "witherSilence", target.id, 15)) silenceUnit(source, target, 2);
+        };
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("longSiphon", "Moving Siphon", "Siphon can be channeled while moving.", (unit) => {
+        const spell = spellOf(unit, "drainLife");
+        spell.moveCast = true;
+        spell.blurb = "Channel while moving. Pulses damage and heals you for part of it.";
+      }),
+      opt("quickDread", "Dread on the Slow", "Dread is instant against a slowed target.", (unit) => {
+        const spell = spellOf(unit, "fear");
+        spell.instantOnSlow = true;
+        spell.blurb = "1.5 sec cast, instant if the target is slowed. Fears the target.";
+      }),
+      opt("readyLock", "Lock Slow", "Hex Lock also applies a 50% slow for 4 sec.", (unit) => {
+        retouch(spellOf(unit, "spellLock"), (source, target) => {
+          if (!target || target.hp <= 0) return;
+          addAura(target, { id: "lockSlow", name: "Hex Lock", short: "Sn", type: "debuff", remaining: 4, slow: 0.5, dispellable: true });
+        });
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longLock", "Lock Root", "Hex Lock roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "spellLock");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "lockRoot", "Hex Lock", "root");
+        };
+      }),
+      opt("readyWither", "Wither Root", "Wither roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "wither");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "witherRoot", "Wither", "root");
+        };
+      }),
+      opt("longDread", "Dread Lock", "Dreading a target who is already feared stuns them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "fear");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = !!(target && target.auras.some((a) => a.control === "fear"));
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "dreadStun", "Dread", "stun");
+        };
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("thickShell", "Shell Chill", "Umbral Shell slows enemies within 8 yards when you cast it.", (unit) => {
+        retouch(spellOf(unit, "umbralShell"), (source) => {
+          for (const foe of unitsInRadius(source, 8, (u) => u.team !== source.team && u.hp > 0)) {
+            addAura(foe, { id: "shellSlow", name: "Umbral Shell", short: "Sn", type: "debuff", remaining: 4, slow: 0.5, dispellable: true });
+          }
+        });
+      }),
+      opt("readyStone", "Stone Cleanse", "Vita Stone also removes a harmful magic effect from you.", (unit) => {
+        retouch(spellOf(unit, "healthstone"), (source) => dispelHelp(source, source));
+      }),
+      opt("readyShell", "Silent Shell", "Umbral Shell can be used while silenced or school-locked.", (unit) => {
+        const spell = spellOf(unit, "umbralShell");
+        spell.ignoreLock = true;
+        spell.blurb = "A shadow shell absorbs damage. Usable while silenced or school-locked. Magic, so it can be purged.";
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("longCurses", "Third Curse", "Landing Rot, Torment, and Volatile Curse together stuns for 2 sec. 15 sec cooldown per target.", (unit) => {
+        for (const id of ["corruption", "agony", "unstableAffliction"]) {
+          const spell = spellOf(unit, id);
+          const prev = spell.effect;
+          spell.effect = function (source, target) {
+            prev.call(this, source, target);
+            if (!target || target.hp <= 0) return;
+            const ready = ["corruption", "agony", "unstableAffliction"].every((curse) => target.auras.some((a) => a.id === curse));
+            if (ready) pressControl(source, target, "curseStun", "Curses", "stun");
+          };
+        }
+      }),
+      opt("longWither", "Cursed Siphon", "Siphon is instant if the target has Rot, Torment, and Volatile Curse.", (unit) => {
+        const spell = spellOf(unit, "drainLife");
+        spell.instantOnCurses = true;
+        spell.blurb = "Channel, instant if the target has Rot, Torment, and Volatile Curse. Pulses damage and heals you.";
+      }),
+      opt("cheapGloom", "Siphon Root", "Siphon roots a cursed target for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "drainLife");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const cursed = !!(target && target.auras.some((a) => a.id === "corruption" || a.id === "agony" || a.id === "unstableAffliction"));
+          prev.call(this, source, target);
+          if (cursed) pressControl(source, target, "siphonRoot", "Siphon", "root");
+        };
+      }),
+    ]),
+  ],
+  druid: [
+    row("damage", "Damage", [
+      opt("longRenewal", "Second Renewal", "Renewing a target who already has Renewal removes a harmful magic effect. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "rejuvenation");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.auras.some((a) => a.id === "rejuvenation"));
+          prev.call(this, source, target);
+          if (already && target && procReady(source, "renewDispel", target.id, 15)) dispelHelp(source, target);
+        };
+      }),
+      opt("biggerBurst", "Ready Regrow", "Regrow is instant on an ally who has Renewal.", (unit) => {
+        chainInstant(spellOf(unit, "regrowth"), (_unit, on) => !!(on && on.auras.some((a) => a.id === "rejuvenation")));
+        spellOf(unit, "regrowth").blurb = "1.5 sec heal, instant if the ally has Renewal.";
+      }),
+      opt("quickRegrow", "Rooted Thorn", "Thornbolt is instant against a rooted target.", (unit) => {
+        const spell = spellOf(unit, "wrath");
+        spell.instantOnRoot = true;
+        spell.blurb = "1.5 sec cast, instant if the target is rooted. Nature damage when both allies are healthy.";
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("readyRoot", "Thicket Lock", "Thicketing a target who is already rooted stuns them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "thicket");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasRoot(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "thicketStun", "Thicket", "stun");
+        };
+      }),
+      opt("quickUp", "Rooted Updraft", "Updraft is instant against a rooted target.", (unit) => {
+        const spell = spellOf(unit, "cyclone");
+        spell.instantOnRoot = true;
+        spell.blurb = "1.5 sec cast, instant if the target is rooted. Lifts them into an incapacitating wind.";
+      }),
+      opt("readyCanopy", "Canopy Step", "Canopy also grants 30% movement speed for 4 sec.", (unit) => {
+        retouch(spellOf(unit, "wildGrowth"), (source) => {
+          for (const friend of friendsOf(source)) {
+            if (friend.auras.some((a) => a.id === "wildGrowth")) grantSpeed(friend, 4, 0.3);
+          }
+        });
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("quickClear", "Clear Step", "Clearbloom grants 50% speed for 4 sec if it removed a control.", (unit) => {
+        const spell = spellOf(unit, "clearbloom");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const aura = target && pickDispel(target, "help");
+          const control = aura && aura.control;
+          prev.call(this, source, target);
+          if (control) grantSpeed(target, 4, 0.5);
+        };
+      }),
+      opt("longRoot", "Moving Updraft", "Updraft can be cast while moving.", (unit) => {
+        const spell = spellOf(unit, "cyclone");
+        spell.moveCast = true;
+      }),
+      opt("longUp", "Updraft Root", "Updraft roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "cyclone");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "updraftRoot", "Updraft", "root");
+        };
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("readyBark", "Bark Cleanse", "Heartwood also removes a harmful magic effect.", (unit) => {
+        retouch(spellOf(unit, "ironbark"), (source, target) => { if (target) dispelHelp(source, target); });
+      }),
+      opt("longBark", "Barked Regrow", "Regrow is instant on an ally with Heartwood.", (unit) => {
+        chainInstant(spellOf(unit, "regrowth"), (_unit, on) => !!(on && on.auras.some((a) => a.id === "ironbark")));
+      }),
+      opt("canopyHeal", "Crisis Canopy", "Canopy also heals an ally below 50% health for 160.", (unit) => {
+        retouch(spellOf(unit, "wildGrowth"), (source) => {
+          for (const friend of friendsOf(source)) {
+            if (friend.hp / friend.hpMax <= 0.5 && friend.auras.some((a) => a.id === "wildGrowth")) heal(source, friend, 160, "Canopy");
+          }
+        });
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("burstSeed", "Bloom Again", "Burst Bloom leaves a 6 sec Renewal behind.", (unit) => {
+        retouch(spellOf(unit, "swiftmend"), (source, target) => {
+          if (!target || target.hp <= 0) return;
+          addAura(target, { id: "rejuvenation", name: "Renewal", short: "Rn", type: "buff", remaining: 6, dispellable: true, hot: { heal: 42, every: 2, tick: 2, name: "Renewal", sourceId: source.id } });
+        });
+      }),
+      opt("heavyThorn", "Thorn Root", "Thornbolt roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "wrath");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "thornRoot", "Thornbolt", "root");
+        };
+      }),
+      opt("longCanopy", "Canopy Cleanse", "Canopy removes slows from allies it reaches.", (unit) => {
+        retouch(spellOf(unit, "wildGrowth"), (source) => {
+          for (const friend of friendsOf(source)) {
+            if (friend.auras.some((a) => a.id === "wildGrowth")) clearSlows(friend);
+          }
+        });
+      }),
+    ]),
+  ],
+  rogue: [
+    row("damage", "Damage", [
+      opt("gutCharges", "Twin Gut", "Gut has 2 charges.", (unit) => {
+        const spell = spellOf(unit, "eviscerate");
+        giveCharges(spell, 2, 6);
+        spell.blurb = "Two charges. A heavier melee strike. Each charge returns after 6 sec.";
+      }),
+      opt("heavySlice", "Slice the Tendon", "Slice roots a target who has Tendon for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "sinisterStrike");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = !!(target && target.auras.some((a) => a.id === "tendon"));
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "sliceRoot", "Slice", "root");
+        };
+      }),
+      opt("longTendon", "Second Tendon", "Tendon on a target who already has it roots them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "tendon");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.auras.some((a) => a.id === "tendon"));
+          prev.call(this, source, target);
+          if (already) pressControl(source, target, "tendonRoot", "Tendon", "root");
+        };
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("farStep", "Long Step", "Step reaches 28 yards.", (unit) => {
+        const spell = spellOf(unit, "step");
+        spell.range = 28;
+        spell.blurb = "Step to an enemy within 28 yards and clear your roots. Does not break the veil.";
+      }),
+      opt("longBurst", "Burst Free", "Burst also clears roots.", (unit) => {
+        retouch(spellOf(unit, "sprint"), (source) => clearRoots(source));
+        spellOf(unit, "sprint").blurb = "Move 70% faster for 6 sec and clear roots. Off the global cooldown.";
+      }),
+      opt("readyBurst", "Clean Step", "Step also clears slows.", (unit) => {
+        retouch(spellOf(unit, "step"), (source) => clearSlows(source));
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longStifle", "Stifle Step", "A successful Stifle resets Step.", (unit) => {
+        const spell = spellOf(unit, "kick");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const casting = !!(target && target.cast);
+          prev.call(this, source, target);
+          if (casting) source.cd.step = 0;
+        };
+      }),
+      opt("longJab", "Held Jab", "Eye Jab on a slowed target does not break when they take damage.", (unit) => {
+        const spell = spellOf(unit, "gouge");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (!primed || !target) return;
+          const aura = target.auras.find((a) => a.id === "gouge");
+          if (aura) aura.breakOnDamage = false;
+        };
+      }),
+      opt("longBlind", "Open Blind", "Blindside stuns a slowed target for 2 sec even out of the veil. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "cheapShot");
+        const prevExtra = spell.extra;
+        spell.extra = function (source, target) {
+          if (isVeiled(source) || hasSlow(target)) return null;
+          return prevExtra ? prevExtra.call(this, source, target) : "Must be veiled";
+        };
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          if (!isVeiled(source) && hasSlow(target)) {
+            pressControl(source, target, "openBlind", "Blindside", "stun", 2);
+            return;
+          }
+          prev.call(this, source, target);
+        };
+        spell.blurb = "From the veil, stuns for 4 sec. Against a slowed target, stuns for 2 sec once every 15 sec even out of the veil.";
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("longFade", "Fade Burst", "Fade also grants Burst's movement speed for 4 sec.", (unit) => {
+        retouch(spellOf(unit, "vanish"), (source) => {
+          addAura(source, { id: "sprint", name: "Burst", short: "Sp", type: "buff", remaining: 4, speed: 0.7 });
+        });
+      }),
+      opt("quickVeil", "Quiet Hands", "Slice and Tendon do not break your veil.", (unit) => {
+        for (const id of ["sinisterStrike", "tendon"]) {
+          const spell = spellOf(unit, id);
+          const prev = spell.effect;
+          spell.effect = function (source, target) {
+            source.veilSafe = true;
+            try { prev.call(this, source, target); }
+            finally { source.veilSafe = false; }
+          };
+        }
+      }),
+      opt("longVeil", "Quiet Jab", "Eye Jab does not break your veil.", (unit) => {
+        const spell = spellOf(unit, "gouge");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          source.veilSafe = true;
+          try { prev.call(this, source, target); }
+          finally { source.veilSafe = false; }
+        };
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("cheapSlice", "Tendon Gut", "Gut against a target with Tendon restores 40 Energy.", (unit) => {
+        const spell = spellOf(unit, "eviscerate");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = !!(target && target.auras.some((a) => a.id === "tendon"));
+          prev.call(this, source, target);
+          if (primed) source.resource = Math.min(100, source.resource + 40);
+        };
+      }),
+      opt("cheapGut", "Fed Gut", "Gut has 2 charges. Slice restores one.", (unit) => {
+        const gut = spellOf(unit, "eviscerate");
+        giveCharges(gut, 2, 6);
+        const slice = spellOf(unit, "sinisterStrike");
+        const prev = slice.effect;
+        slice.effect = function (source, target) {
+          prev.call(this, source, target);
+          refundCharge(source, "eviscerate");
+        };
+      }),
+      opt("cheapJab", "Stifle Gut", "Gut has 2 charges. A successful Stifle restores one.", (unit) => {
+        const gut = spellOf(unit, "eviscerate");
+        giveCharges(gut, 2, 6);
+        const spell = spellOf(unit, "kick");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const casting = !!(target && target.cast);
+          prev.call(this, source, target);
+          if (casting) refundCharge(source, "eviscerate");
+        };
+      }),
+    ]),
+  ],
+  warden: [
+    row("damage", "Damage", [
+      opt("longLantern", "Lantern Mend", "Mend is instant on an ally inside your lantern.", (unit) => {
+        const spell = spellOf(unit, "mend");
+        spell.instantLantern = true;
+        spell.blurb = "1.5 sec heal, instant if the ally is inside your lantern.";
+      }),
+      opt("strongSoothe", "Soothe Cleanse", "Soothe on an ally inside your lantern also removes a harmful magic effect.", (unit) => {
+        const spell = spellOf(unit, "soothe");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          prev.call(this, source, target);
+          if (target && standingInLantern(source, target)) dispelHelp(source, target);
+        };
+      }),
+      opt("thickShelter", "Lantern Shelter", "Shelter on an ally inside your lantern also heals them for 100.", (unit) => {
+        const spell = spellOf(unit, "shelter");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const inside = !!(target && standingInLantern(source, target));
+          prev.call(this, source, target);
+          if (inside) heal(source, target, 100, "Shelter");
+        };
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("readyStep", "Slip Step", "Wickstep also clears roots and slows.", (unit) => {
+        retouch(spellOf(unit, "wickstep"), (source) => { clearRoots(source); clearSlows(source); });
+      }),
+      opt("farKindle", "Leave the Light", "Wickstep leaves your lantern where you were standing.", (unit) => {
+        const spell = spellOf(unit, "wickstep");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const old = { x: source.x, y: source.y, h: source.height || 0 };
+          prev.call(this, source);
+          const lantern = lanternOf(source);
+          if (!lantern) return;
+          lantern.x = old.x;
+          lantern.y = old.y;
+          lantern.h = old.h;
+        };
+      }),
+      opt("clearStep", "Reveal Root", "Snuff roots a veiled enemy it reveals for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "snuff");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const lantern = lanternOf(source);
+          const veiled = lantern ? foesOf(source).filter((foe) => isVeiled(foe) && dist(foe, lantern) <= lanternReach(lantern)) : [];
+          prev.call(this, source);
+          for (const foe of veiled) pressControl(source, foe, "snuffRoot", "Snuff", "root");
+        };
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("wideLantern", "Slow Light", "Enemies inside your lantern are slowed by 30%.", (unit) => {
+        retouch(spellOf(unit, "kindle"), (source) => {
+          const lantern = lanternOf(source);
+          if (lantern) lantern.slowFoes = true;
+        });
+      }),
+      opt("farSoothe", "Flare Root", "Flare roots enemies in the lantern who are already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "flare");
+        const prev = spell.effect;
+        spell.effect = function (source) {
+          const lantern = lanternOf(source);
+          const primed = lantern ? foesOf(source).filter((foe) => hasSlow(foe) && dist(foe, lantern) <= lanternReach(lantern)) : [];
+          prev.call(this, source);
+          for (const foe of primed) pressControl(source, foe, "flareRoot", "Flare", "root");
+        };
+      }),
+      opt("readyFlare", "Hush Step", "Hush grants 50% speed for 4 sec if it removed a control.", (unit) => {
+        const spell = spellOf(unit, "hush");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const aura = target && pickDispel(target, "help");
+          const control = aura && aura.control;
+          prev.call(this, source, target);
+          if (control) grantSpeed(target, 4, 0.5);
+        };
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("longShelter", "Burst Shelter", "When Shelter breaks, that ally gains 50% speed for 3 sec.", (unit) => {
+        retouch(spellOf(unit, "shelter"), (_source, target) => {
+          const aura = target && target.auras.find((a) => a.absorb && a.id === "shelter");
+          if (aura) aura.breakSpeed = 0.5;
+        });
+      }),
+      opt("readyShelter", "Personal Light", "The lantern heals you even when you stand outside it.", (unit) => {
+        retouch(spellOf(unit, "kindle"), (source) => {
+          const lantern = lanternOf(source);
+          if (lantern) lantern.healOwner = true;
+        });
+      }),
+      opt("longBeacon", "Silent Shelter", "Shelter can be used while silenced or school-locked.", (unit) => {
+        const spell = spellOf(unit, "shelter");
+        spell.ignoreLock = true;
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("brightLantern", "Low Soothe", "Soothe on an ally at or below 40% health also grants 50% speed for 4 sec.", (unit) => {
+        const spell = spellOf(unit, "soothe");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const low = !!(target && target.hp / target.hpMax <= 0.4);
+          prev.call(this, source, target);
+          if (low) grantSpeed(target, 4, 0.5);
+        };
+      }),
+      opt("farHush", "Lantern Hush", "Hush costs no mana on an ally inside your lantern.", (unit) => {
+        const spell = spellOf(unit, "hush");
+        spell.costOf = (source) => {
+          const on = unitById(source.targetId);
+          const ally = on && on.hp > 0 && on.team === source.team ? on : source;
+          return standingInLantern(source, ally) ? 0 : (spell.cost || 14);
+        };
+      }),
+      opt("readyMend", "Crisis Mend", "Mend is instant on an ally at or below 35% health.", (unit) => {
+        const spell = spellOf(unit, "mend");
+        spell.instantLow = 0.35;
+        spell.blurb = "1.5 sec heal, instant at or below 35% health.";
+      }),
+    ]),
+  ],
+  binder: [
+    row("damage", "Damage", [
+      opt("doubleLash", "Double Lash", "Lash applies a second chain stack.", (unit) => {
+        retouch(spellOf(unit, "lash"), (source, target) => { if (target && target.hp > 0 && !match.reflectLock) addChain(source, target); });
+      }),
+      opt("longBrand", "Brand Lock", "Brand stuns a target for 2 sec when they reach 3 chain stacks. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "brand");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          prev.call(this, source, target);
+          if (target && chainStacks(source, target) >= 3) pressControl(source, target, "brandStun", "Brand", "stun");
+        };
+      }),
+      opt("readyYank", "Early Yank", "Yank stuns at 2 chain stacks.", (unit) => {
+        unit.yankStunAt = 2;
+        spellOf(unit, "yank").blurb = "Pulls an enemy to you from up to 30 yards and clears their roots. At 2 chain stacks, also stuns them for 1.5 sec.";
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("farYank", "Long Yank", "Yank reaches 40 yards.", (unit) => {
+        const spell = spellOf(unit, "yank");
+        spell.range = 40;
+        spell.blurb = "Pulls an enemy to you from up to 40 yards and clears their roots. At 3 chain stacks, also stuns them for 1.5 sec.";
+      }),
+      opt("readyReel", "Slip Reel", "Reel also clears roots and slows.", (unit) => {
+        retouch(spellOf(unit, "reel"), (source) => { clearRoots(source); clearSlows(source); });
+      }),
+      opt("longHobble", "Chain Hobble", "Hobble roots a target who has your chain for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "hobble");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const chained = chainStacks(source, target) > 0;
+          prev.call(this, source, target);
+          if (chained) pressControl(source, target, "chainHobble", "Hobble", "root");
+        };
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longSilence", "Silence Root", "Silence Lash roots a target who has your chain for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "silenceLash");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const chained = chainStacks(source, target) > 0;
+          prev.call(this, source, target);
+          if (chained) pressControl(source, target, "silenceRoot", "Silence Lash", "root");
+        };
+      }),
+      opt("cheapSever", "Sever Lock", "Sever stuns for 2 sec when it consumes 3 chain stacks.", (unit) => {
+        const spell = spellOf(unit, "sever");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const stacks = chainStacks(source, target);
+          prev.call(this, source, target);
+          if (stacks >= 3) {
+            applyControl(source, target, { id: "severStun", name: "Sever", short: "Stun", control: "stun", dr: "stun", duration: 2, dispellable: false });
+          }
+        };
+      }),
+      opt("readyBind", "Binding Chains", "Bind also applies a chain stack to each enemy it roots.", (unit) => {
+        retouch(spellOf(unit, "bind"), (source) => {
+          for (const foe of foesOf(source)) {
+            if (foe.auras.some((a) => a.id === "bind")) addChain(source, foe);
+          }
+        });
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("thickWall", "Burst Wall", "When Bulwark breaks, you gain 50% speed for 3 sec.", (unit) => {
+        retouch(spellOf(unit, "bulwark"), (source) => {
+          const aura = source.auras.find((a) => a.id === "bulwark");
+          if (aura) aura.breakSpeed = 0.5;
+        });
+      }),
+      opt("readyWall", "Silent Wall", "Bulwark can be used while silenced or school-locked.", (unit) => {
+        spellOf(unit, "bulwark").ignoreLock = true;
+      }),
+      opt("sharpBarbs", "Barbs Lock", "Barbs stuns for 2 sec when the target reaches 3 chain stacks. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "barbs");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          prev.call(this, source, target);
+          if (target && chainStacks(source, target) >= 3) pressControl(source, target, "barbsStun", "Barbs", "stun");
+        };
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("longChain", "Yank Reset", "The strike that puts a target at 3 chain stacks resets Yank.", (unit) => {
+        for (const id of ["lash", "brand", "barbs"]) {
+          const spell = spellOf(unit, id);
+          const prev = spell.effect;
+          spell.effect = function (source, target) {
+            const before = chainStacks(source, target);
+            prev.call(this, source, target);
+            if (target && before < 3 && chainStacks(source, target) >= 3) source.cd.yank = 0;
+          };
+        }
+      }),
+      opt("cheapLash", "Brand Yank", "Brand resets Yank the first time that target reaches 3 stacks.", (unit) => {
+        const spell = spellOf(unit, "brand");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const before = chainStacks(source, target);
+          prev.call(this, source, target);
+          if (target && before < 3 && chainStacks(source, target) >= 3) source.cd.yank = 0;
+        };
+      }),
+      opt("hotBrand", "Second Brand", "Branding a target who already has Brand fears them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "brand");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = !!(target && target.auras.some((a) => a.id === "brand"));
+          prev.call(this, source, target);
+          if (already) pressControl(source, target, "brandFear", "Brand", "fear");
+        };
+      }),
+    ]),
+  ],
+  vow: [
+    row("damage", "Damage", [
+      opt("strongPulse", "Clutch Pulse", "Pulse on an ally at or below 35% health resets Comfort.", (unit) => {
+        const spell = spellOf(unit, "pulse");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const low = !!(target && target.hp > 0 && target.hp / target.hpMax <= 0.35);
+          prev.call(this, source, target);
+          if (low) source.cd.comfort = 0;
+        };
+      }),
+      opt("cheapPulse", "Full Pulse", "Pulse on an ally at or below 35% health is copied in full to your oath partner.", (unit) => {
+        const spell = spellOf(unit, "pulse");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const low = !!(target && target.hp > 0 && target.hp / target.hpMax <= 0.35);
+          if (low) source.fullOath = true;
+          try { prev.call(this, source, target); }
+          finally { if (low) source.fullOath = false; }
+        };
+      }),
+      opt("strongComfort", "Comfort Cleanse", "Comfort also removes a harmful magic effect from you and your oath partner.", (unit) => {
+        retouch(spellOf(unit, "comfort"), (source) => {
+          dispelHelp(source, source);
+          const partner = oathPartner(source);
+          if (partner) dispelHelp(source, partner);
+        });
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("readySwap", "Silent Swap", "Exchange can be used while silenced or school-locked.", (unit) => {
+        spellOf(unit, "exchange").ignoreLock = true;
+      }),
+      opt("readyLink", "Linked Step", "Link also grants you and your oath partner 40% movement speed.", (unit) => {
+        retouch(spellOf(unit, "link"), (source) => {
+          grantSpeed(source, 8, 0.4);
+          const partner = oathPartner(source);
+          if (partner) grantSpeed(partner, 8, 0.4);
+        });
+      }),
+      opt("clearSwap", "Clean Swap", "Exchange clears roots and slows on both of you.", (unit) => {
+        retouch(spellOf(unit, "exchange"), (source) => {
+          clearRoots(source);
+          clearSlows(source);
+          const partner = oathPartner(source);
+          clearRoots(partner);
+          clearSlows(partner);
+        });
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("longRebuke", "Rebuke Root", "Rebuke roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "rebuke");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const primed = hasSlow(target);
+          prev.call(this, source, target);
+          if (primed) pressControl(source, target, "rebukeRoot", "Rebuke", "root");
+        };
+      }),
+      opt("quickChorus", "Crisis Chorus", "Chorus is instant on an ally at or below 40% health.", (unit) => {
+        const spell = spellOf(unit, "chorus");
+        spell.instantLow = 0.4;
+        spell.blurb = "1.5 sec heal, instant at or below 40% health. Your oath copies part of it.";
+      }),
+      opt("farUnravel", "Unravel Mend", "Unravel on your oath partner also heals them for 140.", (unit) => {
+        const spell = spellOf(unit, "unravel");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          prev.call(this, source, target);
+          if (target && oathPartner(source) === target) heal(source, target, 140, "Unravel");
+        };
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("longLink", "Linked Chorus", "Chorus is instant while Link is active.", (unit) => {
+        chainInstant(spellOf(unit, "chorus"), (source) => source.auras.some((a) => a.id === "link"));
+      }),
+      opt("longUnity", "Unity Chorus", "Chorus is instant during Unity.", (unit) => {
+        spellOf(unit, "chorus").instantInUnity = true;
+      }),
+      opt("cheapComfort", "Last Comfort", "Comfort costs no mana at or below 30% health.", (unit) => {
+        const spell = spellOf(unit, "comfort");
+        spell.costOf = (source) => (source.hp / source.hpMax <= 0.3 ? 0 : 16);
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("pulseSpeed", "Pulse Step", "Pulse also grants 30% movement speed to the target and your oath partner.", (unit) => {
+        retouch(spellOf(unit, "pulse"), (source, target) => {
+          if (target) grantSpeed(target, 3, 0.3);
+          const partner = oathPartner(source);
+          if (partner && partner !== target) grantSpeed(partner, 3, 0.3);
+        });
+      }),
+      opt("strongChorus", "Chorus Cleanse", "Chorus removes slows from the ally and your oath partner.", (unit) => {
+        retouch(spellOf(unit, "chorus"), (source, target) => {
+          clearSlows(target);
+          const partner = oathPartner(source);
+          if (partner && partner !== target) clearSlows(partner);
+        });
+      }),
+      opt("farExchange", "Swap Link", "Exchange resets Link.", (unit) => {
+        retouch(spellOf(unit, "exchange"), (source) => { source.cd.link = 0; });
+      }),
+    ]),
+  ],
+  duelist: [
+    row("damage", "Damage", [
+      opt("longMark", "Second Mark", "Marking your current mark roots them for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "mark");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const already = isDuelMark(source, target);
+          prev.call(this, source, target);
+          if (already) pressControl(source, target, "markRoot", "Mark", "root");
+        };
+      }),
+      opt("richFleche", "Fleche Reset", "Fleche against your mark resets Riposte.", (unit) => {
+        const spell = spellOf(unit, "fleche");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const marked = isDuelMark(source, target);
+          prev.call(this, source, target);
+          if (marked) source.cd.riposte = 0;
+        };
+      }),
+      opt("readyRiposte", "Open Riposte", "Riposte stuns your mark for 2 sec even if they have not hit you. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "riposte");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const marked = isDuelMark(source, target);
+          const answered = marked && source.lastHitId === target.id && match.time - (source.lastHitTime || 0) <= 3;
+          prev.call(this, source, target);
+          if (marked && !answered) pressControl(source, target, "openRiposte", "Riposte", "stun");
+        };
+      }),
+    ]),
+    row("movement", "Movement", [
+      opt("farLunge", "Long Lunge", "Lunge reaches from 5 to 28 yards.", (unit) => {
+        const spell = spellOf(unit, "lunge");
+        spell.range = 28;
+        spell.minRange = 5;
+        spell.blurb = "Dash to your mark from 5–28 yards. No stun. Builds Momentum when you arrive. Clears roots. Off the global cooldown.";
+      }),
+      opt("longTempo", "Clean Tempo", "Tempo clears roots and slows.", (unit) => {
+        retouch(spellOf(unit, "tempo"), (source) => { clearRoots(source); clearSlows(source); });
+      }),
+      opt("readyTempo", "Stunning Lunge", "Lunge stuns your mark for 1.5 sec when you arrive.", (unit) => {
+        const spell = spellOf(unit, "lunge");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          prev.call(this, source, target);
+          if (source.dash && source.dash.lunge && isDuelMark(source, target)) source.dash.stunMark = true;
+        };
+        spell.blurb = "Dash to your mark. Stuns them for 1.5 sec when you arrive. Builds Momentum. Clears roots. Off the global cooldown.";
+      }),
+    ]),
+    row("utility", "Utility", [
+      opt("readyParry", "Parry Stun", "Parry stuns your mark for 1.5 sec if they hit you in the last 3 sec.", (unit) => {
+        const spell = spellOf(unit, "parry");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const answered = isDuelMark(source, target) && source.lastHitId === target.id && match.time - (source.lastHitTime || 0) <= 3;
+          prev.call(this, source, target);
+          if (!answered || !target) return;
+          applyControl(source, target, { id: "parryStun", name: "Parry", short: "Stun", control: "stun", dr: "stun", duration: 1.5, dispellable: false });
+        };
+      }),
+      opt("longIsolate", "Isolate Root", "Isolate also roots your mark for 2 sec.", (unit) => {
+        retouch(spellOf(unit, "isolate"), (source, target) => {
+          applyControl(source, target, { id: "isolateRoot", name: "Isolate", short: "Root", control: "root", dr: "root", duration: 2, dispellable: false });
+        });
+      }),
+      opt("earlyCross", "Early Cross", "Crosscut's heavier hit starts below 45% health.", (unit) => {
+        const spell = spellOf(unit, "crosscut");
+        spell.effect = function (source, target) {
+          const low = target.hp / target.hpMax <= 0.45;
+          dealDamage(source, target, low ? 340 : 210, { direct: true, school: "physical", name: "Crosscut" });
+        };
+        spell.blurb = "Costs 40 Momentum. A heavy hit on your mark, heavier below 45% health.";
+      }),
+    ]),
+    row("defense", "Defense", [
+      opt("longFeint", "Long Feint", "Feint reaches 12 yards.", (unit) => {
+        const spell = spellOf(unit, "feint");
+        spell.range = 12;
+        spell.blurb = "Incapacitates an enemy within 12 yards. Breaks on damage.";
+      }),
+      opt("clearTempo", "Feint Slip", "Feint also clears your roots and slows.", (unit) => {
+        retouch(spellOf(unit, "feint"), (source) => { clearRoots(source); clearSlows(source); });
+      }),
+      opt("readyFeint", "Held Feint", "Feint on your mark does not break when they take damage.", (unit) => {
+        const spell = spellOf(unit, "feint");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const marked = isDuelMark(source, target);
+          prev.call(this, source, target);
+          if (!marked || !target) return;
+          const aura = target.auras.find((a) => a.id === "feint");
+          if (aura) aura.breakOnDamage = false;
+        };
+      }),
+    ]),
+    row("pressure", "Pressure", [
+      opt("longRiposte", "Riposte Lunge", "A Riposte stun resets Lunge.", (unit) => {
+        const spell = spellOf(unit, "riposte");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const marked = isDuelMark(source, target);
+          const answered = marked && source.lastHitId === target.id && match.time - (source.lastHitTime || 0) <= 3;
+          prev.call(this, source, target);
+          if (answered) source.cd.lunge = 0;
+        };
+      }),
+      opt("cheapCross", "Cross Reset", "Crosscut on a mark below 30% health resets Lunge.", (unit) => {
+        const spell = spellOf(unit, "crosscut");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const low = !!(target && target.hp / target.hpMax <= 0.3);
+          prev.call(this, source, target);
+          if (low) source.cd.lunge = 0;
+        };
+      }),
+      opt("readyFlourish", "Flourish Root", "Flourish roots your mark for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "flourish");
+        const prev = spell.effect;
+        spell.effect = function (source, target) {
+          const marked = isDuelMark(source, target);
+          prev.call(this, source, target);
+          if (marked) pressControl(source, target, "flourishRoot", "Flourish", "root");
+        };
+      }),
+    ]),
+  ],
+};
+
+let talentPicks = {};
+
+try {
+  talentPicks = JSON.parse(localStorage.getItem("arenaTalents") || "{}") || {};
+} catch (err) {
+  talentPicks = {};
+}
+
+function saveTalents() {
+  try { localStorage.setItem("arenaTalents", JSON.stringify(talentPicks)); } catch (err) { /* ignore */ }
+}
+
+function normalizeTalents(classId, picks) {
+  const nodes = TALENTS[classId];
+  if (!nodes) return [];
+  const list = Array.isArray(picks) ? picks : [];
+  return nodes.map((node, i) => {
+    const id = list[i];
+    return node.choices.some((c) => c.id === id) ? id : node.choices[0].id;
+  });
+}
+
+function rollTalents(classId) {
+  const nodes = TALENTS[classId] || [];
+  return nodes.map((node) => node.choices[Math.floor(Math.random() * node.choices.length)].id);
+}
+
+function picksFor(classId) {
+  return normalizeTalents(classId, talentPicks[classId]);
+}
+
+function applyTalents(unit, picks) {
+  const chosen = normalizeTalents(unit.classId, picks);
+  unit.talents = chosen;
+  const nodes = TALENTS[unit.classId] || [];
+  chosen.forEach((id, i) => {
+    const choice = nodes[i] && nodes[i].choices.find((c) => c.id === id);
+    if (choice) choice.apply(unit);
+  });
+}
+
+function setTalent(nodeIndex, choiceId) {
+  const nodes = TALENTS[setup.player];
+  if (!nodes || !nodes[nodeIndex]) return;
+  if (!nodes[nodeIndex].choices.some((c) => c.id === choiceId)) return;
+  const next = picksFor(setup.player);
+  next[nodeIndex] = choiceId;
+  talentPicks[setup.player] = next;
+  saveTalents();
+  renderLobby();
+  if (party && window.ArenaNet && ArenaNet.connected) ArenaNet.partyClass(setup.player, playerName, next);
+  if (room && window.ArenaNet && ArenaNet.connected) {
+    const mine = (room.slots || []).findIndex((slot) => slot.peerId === ArenaNet.id);
+    if (mine >= 0) {
+      if (iAmHost()) {
+        claimSlot(mine, ArenaNet.id, playerName, setup.player, next);
+        broadcastLobby();
+      } else ArenaNet.send({ kind: "claim", slot: mine, classId: setup.player, name: playerName, talents: next });
+    }
   }
 }
 
@@ -2911,12 +4619,28 @@ function doTargetAction(id) {
 
 function hotStreakReady(unit) {
   const aura = unit?.auras.find((a) => a.id === "hotStreak");
-  return !!(aura && aura.stacks >= 3);
+  return !!(aura && aura.stacks >= (unit.hotNeed || 3));
 }
 
 function castTimeOf(unit, ability) {
   if (ability.id === "pyroblast" && hotStreakReady(unit)) return 0;
+  const on = castSubject(unit, ability);
+  if (ability.instantOnSlow && hasSlow(on)) return 0;
+  if (ability.instantOnRoot && hasRoot(on)) return 0;
+  if (ability.instantLow && on && on.hp > 0 && on.hp / on.hpMax <= ability.instantLow) return 0;
+  if (ability.instantLantern && standingInLantern(unit, on || unit)) return 0;
+  if (ability.instantInUnity && unit.auras.some((a) => a.id === "unity")) return 0;
+  if (ability.instantOnAura && on && on.auras.some((a) => a.id === ability.instantOnAura)) return 0;
+  if (ability.instantOnCurses && on && ["corruption", "agony", "unstableAffliction"].every((id) => on.auras.some((a) => a.id === id))) return 0;
+  if (ability.instantWhen && ability.instantWhen(unit, on)) return 0;
   return ability.castTime || 0;
+}
+
+function castSubject(unit, ability) {
+  if (!ability || ability.target === "self") return unit;
+  const on = unitById(unit.targetId);
+  if (ability.target === "friend" && (!on || on.hp <= 0 || on.team !== unit.team)) return unit;
+  return on;
 }
 
 function isFeigning(unit) {
@@ -3231,16 +4955,26 @@ const SPELL_LOOK = {
   pummel: { kind: "burst", color: "#d7d2bf", life: 0.36, size: 0.9, style: "steel" },
   heroicLeap: { kind: "ring", color: "#e7c98a", life: 0.8, size: 3.2, style: "dust" },
   brace: { kind: "burst", color: "#e7c98a", life: 0.45, size: 1.4, style: "shield" },
+  quake: { kind: "ring", color: "#e7c98a", life: 0.55, size: 8, style: "steel" },
   emberWard: { kind: "burst", color: "#ff7a3c", life: 0.5, size: 1.45, style: "fire" },
   pin: { kind: "bolt", color: "#d9cbb0", life: 0.4, size: 1.05, style: "arrow" },
+  finishShot: { kind: "bolt", color: "#ffb089", life: 0.42, size: 1.2, style: "arrow" },
   blessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.35, style: "holy" },
+  speedBlessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.4, style: "holy" },
   wither: { kind: "burst", color: "#6b4cff", life: 0.48, size: 1.2, style: "shadow" },
+  umbralShell: { kind: "burst", color: "#6b4cff", life: 0.5, size: 1.45, style: "shadow" },
   thicket: { kind: "burst", color: "#7dce6a", life: 0.5, size: 1.3, style: "nature" },
+  clearbloom: { kind: "burst", color: "#c6ff8a", life: 0.45, size: 1.2, style: "nature" },
   step: { kind: "blink", color: "#e6d3b0", life: 0.4, size: 1.2, style: "smoke" },
+  tendon: { kind: "slash", color: "#d6a15a", life: 0.36, size: 1, style: "blade" },
   tend: { kind: "burst", color: "#5ee0c5", life: 0.48, size: 1.35, style: "heal" },
+  wickstep: { kind: "blink", color: "#5ee0c5", life: 0.45, size: 1.3, style: "nature" },
   barbs: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.15, style: "barb" },
+  bulwark: { kind: "burst", color: "#e23d4a", life: 0.5, size: 1.4, style: "shield" },
   comfort: { kind: "burst", color: "#f2a3c7", life: 0.48, size: 1.35, style: "holy" },
+  exchange: { kind: "blink", color: "#f2a3c7", life: 0.45, size: 1.3, style: "holy" },
   flourish: { kind: "slash", color: "#7f9cff", life: 0.45, size: 1.4, style: "blade" },
+  tempo: { kind: "burst", color: "#8eb0ff", life: 0.42, size: 1.25, style: "arcane" },
   spellReflection: { kind: "burst", color: "#9ee7ff", life: 0.5, size: 1.45, style: "shield" },
   trinket: { kind: "ring", color: "#b8fff0", life: 0.55, size: 3.4, style: "holy" },
   frostbolt: { kind: "bolt", color: "#8fd7ff", life: 0.55, size: 1.35, style: "frost" },
@@ -3340,7 +5074,7 @@ function spellVisual(id, source, target, from) {
   if (!look || !match) return;
   const origin = from || { x: source.x, y: source.y, h: 0 };
   const dest = target || source;
-  if (id === "blink" || id === "reel" || id === "step") {
+  if (id === "blink" || id === "reel" || id === "step" || id === "wickstep" || id === "exchange") {
     spellFx({ kind: "burst", style: look.style || "arcane", color: look.color, x: origin.x, y: origin.y, h: 1.15, life: look.life, size: look.size });
     spellFx({ kind: "burst", style: look.style || "arcane", color: look.color, x: source.x, y: source.y, h: 1.15, life: look.life, size: look.size });
     return;
@@ -3520,7 +5254,7 @@ function breakIncaps(target) {
 function dealDamage(source, target, raw, meta) {
   if (!target || target.hp <= 0) return 0;
   if (immune(target)) {
-    if (meta.direct && source) breakVeil(source);
+    if (meta.direct && source && !source.veilSafe) breakVeil(source);
     if (source) touchCombat(source);
     touchCombat(target);
     floater(target, "Immune", "#ddd");
@@ -3566,14 +5300,17 @@ function dealDamage(source, target, raw, meta) {
     }
   }
   let remaining = amount;
+  const burst = [];
   for (const aura of target.auras) {
     if (!aura.absorb) continue;
     const used = Math.min(aura.absorb, remaining);
     aura.absorb -= used;
     remaining -= used;
     if (used > 0) floater(target, `-${used}`, "#9fd0ff");
+    if (aura.absorb <= 0 && aura.breakSpeed) burst.push(aura.breakSpeed);
   }
   target.auras = target.auras.filter((a) => a.absorb == null || a.absorb > 0);
+  for (const speed of burst) grantSpeed(target, 3, speed);
   if (remaining > 0) {
     target.hp = Math.max(0, target.hp - remaining);
     if (target.dummy) target.hp = Math.max(1, target.hp);
@@ -3591,7 +5328,7 @@ function dealDamage(source, target, raw, meta) {
     touchCombat(target);
     if (source) touchCombat(source);
   }
-  if (meta.direct && source) breakVeil(source);
+  if (meta.direct && source && !source.veilSafe) breakVeil(source);
   if (source) source.stats.damage += remaining;
   floater(target, `${crit ? "✦" : ""}${amount}`, crit ? "#ffe14a" : meta.direct || meta.shared ? "#f4f4f4" : "#ffb26b");
   if (meta.direct && meta.log !== false) {
@@ -3649,7 +5386,7 @@ function healLinked(source, target, raw, spellName) {
   const gained = heal(source, target, raw, spellName);
   const partner = oathPartner(source);
   if (!partner || partner === target) return gained;
-  const ratio = source.auras.some((a) => a.id === "unity") ? 1 : 0.5;
+  const ratio = source.fullOath || source.auras.some((a) => a.id === "unity") ? 1 : 0.5;
   heal(source, partner, raw * ratio, "Oath");
   return gained;
 }
@@ -3761,6 +5498,7 @@ function cancelCast(unit, refund) {
     unit.resource = Math.min(max, unit.resource + unit.cast.cost);
   }
   unit.cast = null;
+  unit.nextSpell = null;
 }
 
 function pickDispel(target, mode) {
@@ -3799,9 +5537,15 @@ function unitsInRadius(origin, radius, pred) {
 }
 
 function isLocked(unit, ability) {
+  if (ability.ignoreLock) return false;
   if (ability.school === "magic" && (unit.silence > 0 || unit.lockout > 0)) return true;
   if (ability.castTime > 0 && unit.lockout > 0) return true;
   return false;
+}
+
+function abilityCost(unit, ability) {
+  if (ability.costOf) return ability.costOf(unit);
+  return ability.cost || 0;
 }
 
 function validate(unit, ability, target) {
@@ -3812,8 +5556,11 @@ function validate(unit, ability, target) {
   if (ability.id !== "trinket" && hardLocked(unit)) return statusText(unit) || "Can't act";
   if (ability.id !== "trinket" && isLocked(unit, ability)) return unit.silence > 0 ? "Silenced" : "School locked";
   if (ability.gcd !== false && unit.gcd > 0) return "Not ready";
-  if ((unit.cd[ability.id] || 0) > 0) return "Not ready";
-  if (unit.resource < ability.cost) return `Not enough ${CLASSES[unit.classId].resource.name}`;
+  if (ability.charges) {
+    const left = unit.charges[ability.id] == null ? ability.charges : unit.charges[ability.id];
+    if (left <= 0) return "No charges";
+  } else if ((unit.cd[ability.id] || 0) > 0) return "Not ready";
+  if (unit.resource < abilityCost(unit, ability)) return `Not enough ${CLASSES[unit.classId].resource.name}`;
   if (ability.target === "enemy" || ability.target === "friend" || ability.target === "any") {
     if (!target || target.hp <= 0) return "No target";
   }
@@ -3859,14 +5606,16 @@ function tryCast(unit, abilityId, explicit, quiet) {
     combat(`${nameOf(unit)} cancels Glacier.`);
     return true;
   }
-  if (unit.cast && unit.cast.ability.id === ability.id) return false;
   if (unit.isPlayer && ability.target === "ground" && !unit.aimPoint) {
     if (match.groundAim && match.groundAim.abilityId === ability.id) {
       confirmGroundAim();
       return true;
     }
     const previewTarget = resolveTarget(unit, ability, explicit);
+    const holdGcd = unit.cast && !unit.cast.channel ? unit.gcd : null;
+    if (holdGcd != null) unit.gcd = 0;
     const blocked = validate(unit, ability, previewTarget);
+    if (holdGcd != null) unit.gcd = holdGcd;
     if (blocked) {
       if (unit.human && !quiet) feedback(unit, blocked);
       return false;
@@ -3882,14 +5631,20 @@ function tryCast(unit, abilityId, explicit, quiet) {
     refreshAimCursor();
     return true;
   }
+  if (unit.cast && !unit.cast.channel && unit.human && ability.gcd !== false) {
+    if (unit.cast.ability.id === ability.id && ability.cd) return false;
+    return queueFollowUp(unit, ability, explicit, quiet);
+  }
+  if (unit.cast && unit.cast.ability.id === ability.id) return false;
   const target = resolveTarget(unit, ability, explicit);
   const reason = validate(unit, ability, target);
   if (reason) {
     if (unit.human && !quiet) feedback(unit, reason);
     return false;
   }
-  if (unit.cast) cancelCast(unit, true);
-  unit.resource -= ability.cost;
+  if (unit.cast && ability.gcd !== false) cancelCast(unit, true);
+  const price = abilityCost(unit, ability);
+  unit.resource -= price;
   if (ability.gcd !== false) unit.gcd = ability.gcdTime || TUNE.gcd;
   const time = castTimeOf(unit, ability);
   if (time > 0) {
@@ -3898,7 +5653,7 @@ function tryCast(unit, abilityId, explicit, quiet) {
       targetId: target.id,
       time,
       total: time,
-      cost: ability.cost,
+      cost: price,
       channel: !!ability.channel,
       pulsesLeft: ability.pulses || 0,
       pulse: ability.channel ? 0.05 : 0,
@@ -3906,10 +5661,45 @@ function tryCast(unit, abilityId, explicit, quiet) {
     if (ability.channel && ability.cd) unit.cd[ability.id] = ability.cd;
     unit.goal = null;
   } else {
-    if (ability.cd) unit.cd[ability.id] = ability.cd;
+    if (ability.charges) spendCharge(unit, ability);
+    else if (ability.cd) unit.cd[ability.id] = ability.cd;
     releaseSpell(unit, target, ability);
   }
   return true;
+}
+
+function queueFollowUp(unit, ability, explicit, quiet) {
+  const saved = unit.gcd;
+  unit.gcd = 0;
+  const target = resolveTarget(unit, ability, explicit);
+  const reason = validate(unit, ability, target);
+  unit.gcd = saved;
+  if (reason) {
+    if (unit.human && !quiet) feedback(unit, reason);
+    return false;
+  }
+  unit.nextSpell = {
+    abilityId: ability.id,
+    targetId: explicit ? explicit.id : null,
+    aimPoint: unit.aimPoint ? { x: unit.aimPoint.x, y: unit.aimPoint.y, h: unit.aimPoint.h } : null,
+  };
+  return true;
+}
+
+function releaseQueue(unit) {
+  const next = unit.nextSpell;
+  if (!next || unit.cast || unit.hp <= 0) return;
+  const ability = unit.abilities.find((a) => a.id === next.abilityId);
+  if (!ability) {
+    unit.nextSpell = null;
+    return;
+  }
+  if (ability.gcd !== false && unit.gcd > 0.02) return;
+  unit.nextSpell = null;
+  if (next.aimPoint) unit.aimPoint = next.aimPoint;
+  const target = next.targetId ? unitById(next.targetId) : null;
+  tryCast(unit, next.abilityId, target || undefined);
+  unit.aimPoint = null;
 }
 
 function finishCast(unit) {
@@ -3927,12 +5717,17 @@ function finishCast(unit) {
       unit.resource = Math.min(max, unit.resource + cast.cost);
       if (unit.human) feedback(unit, "Lost the target");
       combat(`${nameOf(unit)} loses ${ability.name}.`);
+      releaseQueue(unit);
       return;
     }
   }
-  if (hardLocked(unit)) return;
+  if (hardLocked(unit)) {
+    unit.nextSpell = null;
+    return;
+  }
   if (ability.cd) unit.cd[ability.id] = ability.cd;
   releaseSpell(unit, target, ability);
+  releaseQueue(unit);
 }
 
 function blinkMove(unit, dx, dy, distance) {
@@ -4048,7 +5843,7 @@ function makeUnit(classId, team, x, y, opts) {
   const def = CLASSES[classId];
   const isPlayer = !!opts.local;
   if (opts.id) nextId = Math.max(nextId, opts.id + 1);
-  return {
+  const unit = {
     id: opts.id || nextId++,
     classId,
     team,
@@ -4064,13 +5859,16 @@ function makeUnit(classId, team, x, y, opts) {
     hp: def.hp,
     hpMax: def.hp,
     resource: def.resource.start,
-    abilities: def.abilities,
+    abilities: def.abilities.map((a) => ({ ...a })),
     auras: [],
     cd: {},
+    charges: {},
+    recharge: {},
     gcd: 0,
     silence: 0,
     lockout: 0,
     cast: null,
+    nextSpell: null,
     dash: null,
     vx: 0,
     vy: 0,
@@ -4096,6 +5894,8 @@ function makeUnit(classId, team, x, y, opts) {
     toX: x,
     toY: y,
   };
+  applyTalents(unit, opts.talents);
+  return unit;
 }
 
 function assignNames(units) {
@@ -4127,9 +5927,11 @@ function rosterFromSpec(spec) {
   let id = 1;
   allies.forEach((classId, i) => roster.push({
     id: id++, classId, team: "ally", x: 18, y: ay[i], human: i === 0, local: i === 0, peerId: null, name: null,
+    talents: i === 0 ? picksFor(classId) : rollTalents(classId),
   }));
   enemies.forEach((classId, i) => roster.push({
     id: id++, classId, team: "enemy", x: 82, y: ey[i], human: false, local: false, peerId: null, name: null,
+    talents: rollTalents(classId),
   }));
   return roster;
 }
@@ -4240,6 +6042,37 @@ function tickAuras(unit, dt) {
   unit.auras = unit.auras.filter((a) => (a.hold || a.remaining > 0) && (a.absorb == null || a.absorb > 0));
 }
 
+function spendCharge(unit, ability) {
+  const max = ability.charges;
+  if (!unit.charges) unit.charges = {};
+  if (!unit.recharge) unit.recharge = {};
+  if (unit.charges[ability.id] == null) unit.charges[ability.id] = max;
+  unit.charges[ability.id] = Math.max(0, unit.charges[ability.id] - 1);
+  if (unit.charges[ability.id] < max && !(unit.recharge[ability.id] > 0)) {
+    unit.recharge[ability.id] = ability.recharge || 20;
+  }
+}
+
+function tickCharges(unit, dt) {
+  if (!unit.charges) unit.charges = {};
+  if (!unit.recharge) unit.recharge = {};
+  for (const ability of unit.abilities) {
+    if (!ability.charges) continue;
+    const max = ability.charges;
+    if (unit.charges[ability.id] == null) unit.charges[ability.id] = max;
+    if (unit.charges[ability.id] >= max) {
+      unit.recharge[ability.id] = 0;
+      continue;
+    }
+    if (!(unit.recharge[ability.id] > 0)) unit.recharge[ability.id] = ability.recharge || 20;
+    unit.recharge[ability.id] -= dt;
+    if (unit.recharge[ability.id] <= 0) {
+      unit.charges[ability.id] += 1;
+      unit.recharge[ability.id] = unit.charges[ability.id] >= max ? 0 : (ability.recharge || 20);
+    }
+  }
+}
+
 function tickUnitTimers(unit, dt) {
   if (unit.gcd > 0) unit.gcd = Math.max(0, unit.gcd - dt);
   if (unit.silence > 0) unit.silence = Math.max(0, unit.silence - dt);
@@ -4247,6 +6080,7 @@ function tickUnitTimers(unit, dt) {
   for (const key of Object.keys(unit.cd)) {
     if (unit.cd[key] > 0) unit.cd[key] = Math.max(0, unit.cd[key] - dt);
   }
+  tickCharges(unit, dt);
 }
 
 function tickSwing(unit, dt) {
@@ -4260,7 +6094,7 @@ function tickSwing(unit, dt) {
   if (unit.swing > 0) return;
   unit.swing += auto.interval;
   const dealt = dealDamage(unit, target, auto.damage, { direct: true, school: "physical", name: "Auto attack", log: false });
-  if (unit.classId === "warrior" && dealt >= 0) unit.resource = Math.min(100, unit.resource + 12);
+  if (unit.classId === "warrior" && dealt >= 0) unit.resource = Math.min(100, unit.resource + (unit.rageOnSwing || 12));
   if (unit.classId === "duelist" && isDuelMark(unit, target) && !immune(target)) gainMomentum(unit, 8);
 }
 
@@ -4335,7 +6169,20 @@ function tickDash(unit, dt) {
     if (dash.lunge) {
       spellFx({ kind: "burst", color: "#7f9cff", x: unit.x, y: unit.y, h: 0.45, life: 0.3, size: 1.2 });
       const mark = unitById(dash.markId);
-      if (mark && mark.hp > 0 && dist(unit, mark) < 7) gainMomentum(unit, dash.momentum || 0);
+      if (mark && mark.hp > 0 && dist(unit, mark) < 7) {
+        gainMomentum(unit, dash.momentum || 0);
+        if (dash.stunMark) {
+          applyControl(unit, mark, {
+            id: "lungeStun",
+            name: "Lunge",
+            short: "Stun",
+            control: "stun",
+            dr: "stun",
+            duration: 1.5,
+            dispellable: false,
+          });
+        }
+      }
       return;
     }
     if (dash.leap) spellFx({ kind: "burst", color: "#e7c98a", x: unit.x, y: unit.y, h: 0.4, life: 0.32, size: 1.55 });
@@ -4389,6 +6236,7 @@ function tickTraps(dt) {
         breakOnDamage: true,
         dispellable: true,
       });
+      if (trap.silence && owner) silenceUnit(owner, victim, 3);
     }
   }
   match.traps = match.traps.filter((t) => t.life > 0);
@@ -4410,7 +6258,14 @@ function tickLanterns(dt) {
     const reach = lantern.beacon > 0 ? lantern.radius * 2 : lantern.radius;
     const inside = match.units.filter((u) => u.team === lantern.team && u.hp > 0 && Math.abs(u.height - (lantern.h || 0)) < 2.4 && dist(u, lantern) <= reach);
     const targets = lantern.beacon > 0 && inside.length ? friendsOf(owner) : inside;
-    for (const ally of targets) heal(owner, ally, 34, "Kindle", true);
+    if (lantern.healOwner && owner.hp > 0 && !targets.includes(owner)) targets.push(owner);
+    for (const ally of targets) heal(owner, ally, lantern.heal || 34, "Kindle", true);
+    if (lantern.slowFoes) {
+      for (const foe of foesOf(owner)) {
+        if (foe.hp <= 0 || Math.abs(foe.height - (lantern.h || 0)) >= 2.4 || dist(foe, lantern) > reach) continue;
+        addAura(foe, { id: "lanternSlow", name: "Lantern", short: "Sn", type: "debuff", remaining: 2, slow: 0.3, dispellable: true });
+      }
+    }
   }
   match.lanterns = match.lanterns.filter((l) => l.life > 0);
 }
@@ -4574,6 +6429,8 @@ function aiVanguard(unit) {
       unit.aimPoint = null;
     }
     if (unit.hp / unit.hpMax < 0.5) tryCast(unit, "brace");
+    const packed = foesOf(unit).filter((f) => !isHidden(f) && dist(unit, f) <= 8 && hasLoS(unit, f));
+    if (packed.length) tryCast(unit, "quake");
     if (kill.hp / kill.hpMax <= 0.2) tryCast(unit, "execute", kill);
     tryCast(unit, "mortalStrike", kill);
     if (!kill.auras.some((a) => a.slow)) tryCast(unit, "hamstring", kill);
@@ -4629,6 +6486,7 @@ function aiRanger(unit) {
   if (kill && !unit.cast) {
     if (dist(unit, kill) <= 5) tryCast(unit, "wingClip", kill);
     if (dist(unit, kill) >= 8) tryCast(unit, "pin", kill);
+    if (kill.hp / kill.hpMax <= 0.2 && dist(unit, kill) >= 8) tryCast(unit, "finishShot", kill);
     if (near && !near.auras.some((a) => a.slow) && dist(unit, near) >= 8) tryCast(unit, "concussiveShot", near);
     if (!near || dist(unit, near) > 10) tryCast(unit, "aimedShot", kill);
   }
@@ -4651,6 +6509,8 @@ function aiCleric(unit) {
   }
   if (kill && pickDispel(kill, "harm")) tryCast(unit, "dispelMagic", kill);
   if (lowest && lowest.hp / lowest.hpMax < 0.7 && !hasAura(lowest, "blessing")) tryCast(unit, "blessing", lowest);
+  const chased = friends.find((friend) => !hasAura(friend, "speedBlessing") && foesOf(unit).some((foe) => !isHidden(foe) && dist(friend, foe) < 11));
+  if (chased) tryCast(unit, "speedBlessing", chased);
   if (lowest && lowest.hp / lowest.hpMax < 0.82 && !hasAura(lowest, "powerWordShield") && !hasAura(lowest, "weakenedSoul")) {
     tryCast(unit, "powerWordShield", lowest);
   }
@@ -4677,6 +6537,7 @@ function aiHexer(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
   if (unit.hp / unit.hpMax < 0.36) tryCast(unit, "healthstone");
+  if (unit.hp / unit.hpMax < 0.6 && !unit.auras.some((a) => a.absorb)) tryCast(unit, "umbralShell");
   tryKick(unit, "spellLock", 30);
   const off = foesOf(unit).find((foe) => (
     foe !== kill
@@ -4704,6 +6565,12 @@ function aiGrovekeeper(unit) {
   const kill = pickKillTarget(unit);
   const near = nearestFoe(unit);
   if (near && dist(unit, near) < 28 && drFactor(near, "root") > 0 && !near.auras.some((a) => a.control === "root")) tryCast(unit, "thicket", near);
+  for (const friend of friends) {
+    if (pickDispel(friend, "help")) {
+      tryCast(unit, "clearbloom", friend);
+      break;
+    }
+  }
   if (lowest && lowest.hp / lowest.hpMax < 0.42) tryCast(unit, "ironbark", lowest);
   for (const friend of friends) {
     if (friend.hp / friend.hpMax < 0.94 && !hasAura(friend, "rejuvenation")) {
@@ -4758,6 +6625,7 @@ function aiShade(unit) {
   if (off && !isVeiled(unit)) tryCast(unit, "gouge", off);
   if (kill && !isVeiled(unit) && dist(unit, kill) <= 5) {
     if (unit.resource >= 35) tryCast(unit, "eviscerate", kill);
+    if (!kill.auras.some((a) => a.slow)) tryCast(unit, "tendon", kill);
     if (!unit.gcd) tryCast(unit, "sinisterStrike", kill);
   }
   if (kill && dist(unit, kill) > 6 && dist(unit, kill) <= 20) tryCast(unit, "step", kill);
@@ -4773,6 +6641,7 @@ function aiWarden(unit) {
   const lantern = lanternOf(unit);
   const hurt = friends.filter((f) => f.hp / f.hpMax < 0.62);
   if (lantern && (lowest?.hp / lowest.hpMax < 0.4 || hurt.length >= 2)) tryCast(unit, "beacon");
+  if (lantern && near && dist(unit, near) < 10 && dist(unit, lantern) > 14) tryCast(unit, "wickstep");
   const allyOut = lowest && (!lantern || dist(lowest, lantern) > lanternReach(lantern) + 1);
   if (!lantern || (allyOut && lowest.hp / lowest.hpMax < 0.88)) {
     unit.aimPoint = lowest && hasLoS(unit, lowest) ? { x: lowest.x, y: lowest.y } : { x: unit.x, y: unit.y };
@@ -4807,6 +6676,7 @@ function aiWarden(unit) {
 function aiBinder(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
+  if (unit.hp / unit.hpMax < 0.55 && !unit.auras.some((a) => a.absorb)) tryCast(unit, "bulwark");
   const foes = foesOf(unit);
   if (foes.length >= 2 && dist(foes[0], foes[1]) <= 12 && (!kill || kill.hp / kill.hpMax > 0.35)) tryCast(unit, "bind");
   tryKick(unit, "silenceLash", 30);
@@ -4839,6 +6709,7 @@ function aiVow(unit) {
   const near = nearestFoe(unit);
   if (lowest && lowest.hp / lowest.hpMax < 0.4) tryCast(unit, "unity");
   if (partner && !unit.auras.some((a) => a.id === "oath")) tryCast(unit, "oath", partner);
+  if (partner && near && dist(unit, near) < 8 && dist(partner, near) > 18) tryCast(unit, "exchange", partner);
   if (partner && lowest && lowest.hp / lowest.hpMax < 0.55 && !hasAura(unit, "link")) tryCast(unit, "link");
   for (const friend of friends) {
     if (pickDispel(friend, "help")) {
@@ -4868,6 +6739,7 @@ function aiDuelist(unit) {
   if (kill) {
     const d = dist(unit, kill);
     if (d >= 8 && d <= 20 && hasLoS(unit, kill)) tryCast(unit, "lunge", kill);
+    if (d > 8 && d <= 22) tryCast(unit, "tempo");
     const off = foesOf(unit).find((f) => f !== kill && !isHidden(f) && !immune(f) && dist(unit, f) <= 5 && drFactor(f, "incap") > 0 && !f.auras.some((a) => a.control));
     if (off) tryCast(unit, "feint", off);
     if (d <= 5) {
@@ -5117,6 +6989,7 @@ function update(dt) {
     regen(unit, dt);
     tickDash(unit, dt);
     tickCast(unit, dt);
+    releaseQueue(unit);
     tickSwing(unit, dt);
   }
   tickTraps(dt);
@@ -5137,12 +7010,14 @@ function update(dt) {
     if (p.hp <= 0 || hardLocked(p) || match.phase !== "fight") match.groundAim = null;
     else refreshAimCursor();
   }
-  const selected = unitById(match.player.targetId);
-  if (!selected || selected.hp <= 0 || (isHidden(selected) && selected.team !== match.player.team)) {
-    const next = match.units.find((u) => u.team !== match.player.team && u.hp > 0 && !isHidden(u))
-      || match.units.find((u) => u.hp > 0 && u !== match.player && !isHidden(u));
-    if (next) match.player.targetId = next.id;
-    else if (selected && isHidden(selected)) match.player.targetId = null;
+  if (match.player.isPlayer) {
+    const selected = unitById(match.player.targetId);
+    if (!selected || selected.hp <= 0 || (isHidden(selected) && selected.team !== match.player.team)) {
+      const next = match.units.find((u) => u.team !== match.player.team && u.hp > 0 && !isHidden(u))
+        || match.units.find((u) => u.hp > 0 && u !== match.player && !isHidden(u));
+      if (next) match.player.targetId = next.id;
+      else if (selected && isHidden(selected)) match.player.targetId = null;
+    }
   }
   checkEnd();
   if (match.phase !== "end") publishSnapDue(dt);
@@ -5172,27 +7047,27 @@ function fmtTime(t) {
 
 const SPELL_GLYPH = {
   charge: "rush", mortalStrike: "slash", hamstring: "slow", overpower: "press", execute: "finisher",
-  pummel: "interrupt", heroicLeap: "leap", brace: "guard", spellReflection: "reflect",
+  pummel: "interrupt", heroicLeap: "leap", brace: "guard", quake: "stun", spellReflection: "reflect",
   frostbolt: "ice", fireBlast: "fire", polymorph: "sheep", counterspell: "interrupt", blink: "blink",
   frostNova: "nova", scorch: "fire", pyroblast: "inferno", emberWard: "ward", iceBlock: "ice",
   aimedShot: "shot", concussiveShot: "slow", freezingTrap: "trap", wingClip: "slow", silencingShot: "interrupt",
-  disengage: "back", feignDeath: "feign", pin: "root", deterrence: "deflect",
+  disengage: "back", feignDeath: "feign", pin: "root", finishShot: "shot", deterrence: "deflect",
   flashHeal: "heal", powerWordShield: "shield", shadowWordPain: "pain", psychicScream: "fear",
-  dispelMagic: "cleanse", mindBlast: "mind", penance: "channel", blessing: "bless", desperatePrayer: "heal",
+  dispelMagic: "cleanse", mindBlast: "mind", penance: "channel", blessing: "bless", speedBlessing: "haste", desperatePrayer: "heal",
   shadowBolt: "shadow", corruption: "dot", agony: "dot", unstableAffliction: "curse", fear: "fear",
-  spellLock: "interrupt", drainLife: "drain", wither: "wither", healthstone: "stone",
+  spellLock: "interrupt", drainLife: "drain", wither: "wither", umbralShell: "ward", healthstone: "stone",
   rejuvenation: "leaf", lifebloom: "bloom", regrowth: "leaf", wildGrowth: "bloom", swiftmend: "heal",
-  cyclone: "cyclone", wrath: "leaf", thicket: "root", ironbark: "bark",
+  cyclone: "cyclone", wrath: "leaf", thicket: "root", clearbloom: "cleanse", ironbark: "bark",
   sinisterStrike: "dagger", eviscerate: "finisher", cheapShot: "stun", kick: "interrupt", gouge: "stun",
-  sprint: "rush", stealth: "veil", step: "blink", vanish: "veil",
+  sprint: "rush", stealth: "veil", step: "blink", tendon: "slow", vanish: "veil",
   kindle: "lantern", soothe: "heal", shelter: "shield", hush: "interrupt", flare: "lantern",
-  mend: "heal", snuff: "fire", tend: "lantern", beacon: "lantern",
+  mend: "heal", snuff: "fire", tend: "lantern", wickstep: "blink", beacon: "lantern",
   lash: "chain", brand: "brand", yank: "yank", sever: "slash", silenceLash: "interrupt",
-  hobble: "slow", reel: "yank", barbs: "chain", bind: "chain",
+  hobble: "slow", reel: "yank", barbs: "chain", bulwark: "shield", bind: "chain",
   oath: "heart", pulse: "heal", link: "link", unravel: "cleanse", chorus: "heal", rebuke: "interrupt",
-  thread: "link", comfort: "heal", unity: "heart",
+  thread: "link", comfort: "heal", exchange: "blink", unity: "heart",
   mark: "mark", fleche: "slash", riposte: "deflect", lunge: "rush", crosscut: "cross",
-  parry: "deflect", feint: "veil", flourish: "finisher", isolate: "mark", trinket: "charm",
+  parry: "deflect", feint: "veil", flourish: "finisher", tempo: "rush", isolate: "mark", trinket: "charm",
 };
 
 const iconCache = {};
@@ -5207,7 +7082,7 @@ function spellIcon(id) {
   const ink = {
     ice: "#9fdfff", fire: "#ff8a3c", inferno: "#ffd27a", shadow: "#c9a0ff", sheep: "#d7e7f2",
     heal: "#8dffb0", leaf: "#7dff9a", bloom: "#d6ff7a", pain: "#d07cff", fear: "#e7c4ff",
-    lantern: "#d8fff6", heart: "#ffb3cf", chain: "#f0d48a", charm: "#8fd0c3",
+    lantern: "#d8fff6", heart: "#ffb3cf", chain: "#f0d48a", charm: "#8fd0c3", haste: "#f7f4ff",
   }[kind] || "#f3e2b8";
   ctx.fillStyle = "#16120f";
   ctx.fillRect(0, 0, 128, 128);
@@ -5254,6 +7129,16 @@ function spellIcon(id) {
     ctx.closePath();
     ctx.fill();
     if (kind === "blink") { ctx.globalAlpha = 0.45; ctx.translate(-18, 0); ctx.fill(); }
+  } else if (kind === "haste") {
+    const chevron = (x) => {
+      ctx.beginPath();
+      ctx.moveTo(x - 16, 16);
+      ctx.lineTo(x + 10, 0);
+      ctx.lineTo(x - 16, -16);
+      ctx.stroke();
+    };
+    chevron(-8);
+    chevron(14);
   } else if (kind === "slow" || kind === "root") {
     ctx.beginPath();
     ctx.arc(0, 8, 26, 0, Math.PI * 2);
@@ -5573,14 +7458,16 @@ function selectTarget(id) {
 function abilityTip(ability) {
   const bits = [];
   if (ability.channel) bits.push(`${ability.castTime}s channel`);
-  else if (ability.id === "pyroblast") bits.push("2.5s cast, instant at 3 Wildfire");
+  else if (ability.id === "pyroblast") bits.push(`${ability.castTime || 2.5}s cast, instant at ${match.player.hotNeed || 3} Wildfire`);
   else bits.push(ability.castTime ? `${ability.castTime}s cast` : "Instant");
   if (ability.moveCast) bits.push("while moving");
   if (ability.range) bits.push(ability.minRange ? `${ability.minRange}–${ability.range} yd` : `${ability.range} yd`);
   if (ability.radius) bits.push(`${ability.radius} yd radius`);
   const res = CLASSES[match.player.classId].resource.name;
-  if (ability.cost) bits.push(`${ability.cost} ${res}`);
-  if (ability.cd) bits.push(`${ability.cd}s cooldown`);
+  const price = abilityCost(match.player, ability);
+  if (price) bits.push(`${price} ${res}`);
+  if (ability.charges) bits.push(`${ability.charges} charges, ${ability.recharge}s each`);
+  else if (ability.cd) bits.push(`${ability.cd}s cooldown`);
   if (ability.gcd === false) bits.push("Off global cooldown");
   return `<strong>${ability.name}</strong><div class="meta">${ability.tag} · ${bits.join(" · ")}</div><p>${ability.blurb}</p>`;
 }
@@ -5668,7 +7555,8 @@ function updateHud() {
   if (player.cast) {
     castbar.classList.remove("hidden");
     $("cast-fill").style.width = `${(1 - player.cast.time / player.cast.total) * 100}%`;
-    $("cast-label").textContent = player.cast.ability.name;
+    const follow = player.nextSpell && player.abilities.find((a) => a.id === player.nextSpell.abilityId);
+    $("cast-label").textContent = follow ? `${player.cast.ability.name}  →  ${follow.name}` : player.cast.ability.name;
   } else castbar.classList.add("hidden");
   const st = statusText(player);
   const aimAbility = match.groundAim && player.abilities.find((a) => a.id === match.groundAim.abilityId);
@@ -5682,14 +7570,27 @@ function updateHud() {
 
   for (const ability of player.abilities) {
     const btn = ability.el;
-    const cd = Math.max(ability.gcd === false ? 0 : player.gcd, player.cd[ability.id] || 0);
-    const base = ability.cd || (ability.gcd === false ? 0 : TUNE.gcd);
-    const pct = base > 0 ? clamp(cd / (ability.cd || TUNE.gcd), 0, 1) : 0;
+    let cd = Math.max(ability.gcd === false ? 0 : player.gcd, player.cd[ability.id] || 0);
+    let base = ability.cd || (ability.gcd === false ? 0 : TUNE.gcd);
+    let chargeLeft = null;
+    if (ability.charges) {
+      chargeLeft = player.charges[ability.id] == null ? ability.charges : player.charges[ability.id];
+      const recharging = chargeLeft < ability.charges ? (player.recharge[ability.id] || 0) : 0;
+      if (chargeLeft <= 0) {
+        cd = recharging;
+        base = ability.recharge || 20;
+      }
+    }
+    const pct = base > 0 ? clamp(cd / base, 0, 1) : 0;
+    btn.classList.toggle("queued", !!(player.nextSpell && player.nextSpell.abilityId === ability.id));
     btn.querySelector(".sweep").style.height = `${pct * 100}%`;
-    btn.querySelector(".cd").textContent = cd > 0.15 ? String(Math.ceil(cd)) : "";
+    btn.querySelector(".cd").textContent = chargeLeft != null
+      ? (chargeLeft <= 0 && cd > 0.15 ? String(Math.ceil(cd)) : String(chargeLeft))
+      : (cd > 0.15 ? String(Math.ceil(cd)) : "");
     let costText = "Free";
+    const price = abilityCost(player, ability);
     if (ability.tag === "Trinket") costText = "Trinket";
-    else if (ability.cost) costText = String(ability.cost);
+    else if (price) costText = String(price);
     else if (ability.tag === "Signature") costText = "Signature";
     if (ability.id === "pyroblast" && hotStreakReady(player)) costText = "Instant";
     btn.querySelector(".cost").textContent = costText;
@@ -5698,8 +7599,10 @@ function updateHud() {
     const frozen = player.auras.some((a) => a.ice);
     const controlled = hardLocked(player);
     let usable = match.phase === "fight" && player.hp > 0 && !frozen && (ability.id === "trinket" || !controlled);
-    if (ability.cost > player.resource) usable = false;
-    if ((player.cd[ability.id] || 0) > 0) usable = false;
+    if (price > player.resource) usable = false;
+    if (ability.charges) {
+      if (chargeLeft <= 0) usable = false;
+    } else if ((player.cd[ability.id] || 0) > 0) usable = false;
     if (ability.extra) {
       const extraTarget = ability.target === "self" || ability.target === "aoe" || ability.target === "ground" ? player : selected;
       if (extraTarget && ability.extra(player, extraTarget)) usable = false;
@@ -5977,9 +7880,12 @@ function packMatch() {
       lockout: unit.lockout,
       targetId: unit.targetId,
       cd: unit.cd,
+      charges: unit.charges || {},
+      recharge: unit.recharge || {},
       dead: unit.hp <= 0,
       dash: dashKind(unit),
       cast: unit.cast ? { id: unit.cast.ability.id, time: unit.cast.time, total: unit.cast.total } : null,
+      nextSpell: unit.nextSpell ? unit.nextSpell.abilityId : null,
       auras: unit.auras.map(packAura),
       damage: unit.stats.damage,
       healing: unit.stats.healing,
@@ -6029,8 +7935,10 @@ function applySnap(state) {
     unit.gcd = snap.gcd;
     unit.silence = snap.silence;
     unit.lockout = snap.lockout;
-    unit.targetId = snap.targetId;
+    if (unit !== match.player) unit.targetId = snap.targetId;
     unit.cd = snap.cd || {};
+    unit.charges = snap.charges || {};
+    unit.recharge = snap.recharge || {};
     unit.dead = snap.hp <= 0;
     unit.auras = snap.auras || [];
     unit.stats.damage = snap.damage || 0;
@@ -6042,6 +7950,7 @@ function applySnap(state) {
       const ability = unit.abilities.find((a) => a.id === snap.cast.id);
       unit.cast = ability ? { ability, time: snap.cast.time, total: snap.cast.total, channel: !!ability.channel } : null;
     } else unit.cast = null;
+    unit.nextSpell = snap.nextSpell ? { abilityId: snap.nextSpell, targetId: null, aimPoint: null } : null;
   }
   if (ended) showResult();
 }
@@ -6121,7 +8030,7 @@ function broadcastLobby() {
   ArenaNet.send({ kind: "lobby", code: room.code, size: setup.size, slots: room.slots });
 }
 
-function claimSlot(index, peerId, name, classId) {
+function claimSlot(index, peerId, name, classId, talents) {
   if (!room || !room.slots[index]) return false;
   const slot = room.slots[index];
   if (slot.kind === "human" && slot.peerId && slot.peerId !== peerId) return false;
@@ -6136,6 +8045,7 @@ function claimSlot(index, peerId, name, classId) {
   slot.peerId = peerId;
   slot.name = String(name || "Player").slice(0, 16);
   if (CLASSES[classId]) slot.classId = classId;
+  if (Array.isArray(talents)) slot.talents = normalizeTalents(slot.classId, talents);
   return true;
 }
 
@@ -6240,7 +8150,7 @@ function onNetMessage(msg) {
     return;
   }
   if (data.kind === "claim" && iAmHost()) {
-    claimSlot(data.slot, msg.from, data.name, data.classId);
+    claimSlot(data.slot, msg.from, data.name, data.classId, data.talents);
     broadcastLobby();
     if (!match) renderLobby();
     return;
@@ -6309,7 +8219,7 @@ async function findMatch() {
   }
   try {
     await ensureOnline();
-    ArenaNet.queue(setup.size, setup.player, playerName);
+    ArenaNet.queue(setup.size, setup.player, playerName, picksFor(setup.player));
   } catch (err) {
     queueing = false;
     netStatus = err.message || "Could not reach the server.";
@@ -6366,7 +8276,7 @@ async function createParty() {
   readIdentity();
   try {
     await ensureOnline();
-    ArenaNet.partyCreate(playerName, setup.player);
+    ArenaNet.partyCreate(playerName, setup.player, picksFor(setup.player));
   } catch (err) {
     netStatus = err.message || "Could not reach the server.";
     renderLobby();
@@ -6383,7 +8293,7 @@ async function joinParty() {
   }
   try {
     await ensureOnline();
-    ArenaNet.partyJoin(code, playerName, setup.player);
+    ArenaNet.partyJoin(code, playerName, setup.player, picksFor(setup.player));
   } catch (err) {
     netStatus = err.message || "Could not reach the server.";
     renderLobby();
@@ -6397,7 +8307,7 @@ async function queueBots() {
     await ensureOnline();
     netStatus = "Starting a bot match…";
     renderLobby();
-    ArenaNet.queueBots(setup.player, playerName);
+    ArenaNet.queueBots(setup.player, playerName, picksFor(setup.player));
   } catch (err) {
     netStatus = err.message || "Could not reach the server.";
     renderLobby();
@@ -6435,6 +8345,7 @@ function startOnline() {
     human: slot.kind === "human",
     peerId: slot.kind === "human" ? slot.peerId : null,
     name: slot.kind === "human" ? slot.name : null,
+    talents: slot.kind === "human" ? normalizeTalents(slot.classId, slot.talents) : rollTalents(slot.classId),
   }));
   const map = rollMap();
   ArenaNet.send({ kind: "start", roster, map });
@@ -6530,7 +8441,7 @@ function renderLobby() {
           <img class="menu-emblem" src="assets/arena-emblem.jpg" alt="">
           <div>
             <h1>Arena</h1>
-            <p>Pick a class, set your keys, then enter. Training lets you place the frames first.</p>
+            <p>Pick a class, choose your talents, set your keys, then enter. Training lets you place the frames first.</p>
           </div>
         </div>
       </header>
@@ -6556,6 +8467,7 @@ function renderLobby() {
           <div class="class-grid" id="pick-player">
             ${Object.keys(CLASSES).map((id) => card(id, setup.player === id)).join("")}
           </div>
+          ${talentBoard()}
           <div class="dossier" id="dossier"></div>
         </section>
         <aside class="menu-panel">
@@ -6577,6 +8489,9 @@ function renderLobby() {
     </div>`;
 
   renderDossier();
+  root.querySelectorAll("[data-talent]").forEach((btn) => {
+    btn.addEventListener("click", () => setTalent(Number(btn.dataset.talentNode), btn.dataset.talent));
+  });
   root.querySelectorAll("[data-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       playMode = btn.dataset.mode;
@@ -6611,7 +8526,7 @@ function renderLobby() {
           }
         }
       }
-      if (party && window.ArenaNet && ArenaNet.connected) ArenaNet.partyClass(setup.player, playerName);
+      if (party && window.ArenaNet && ArenaNet.connected) ArenaNet.partyClass(setup.player, playerName, picksFor(setup.player));
       renderLobby();
     });
   });
@@ -6687,11 +8602,11 @@ function renderLobby() {
       readIdentity();
       const index = Number(btn.dataset.claim);
       if (iAmHost()) {
-        claimSlot(index, ArenaNet.id, playerName, setup.player);
+        claimSlot(index, ArenaNet.id, playerName, setup.player, picksFor(setup.player));
         broadcastLobby();
         renderLobby();
       } else if (window.ArenaNet) {
-        ArenaNet.send({ kind: "claim", slot: index, classId: setup.player, name: playerName });
+        ArenaNet.send({ kind: "claim", slot: index, classId: setup.player, name: playerName, talents: picksFor(setup.player) });
       }
     });
   });
@@ -6716,6 +8631,17 @@ function renderLobby() {
       } else if (window.ArenaNet) ArenaNet.send({ kind: "leave-slot" });
     });
   });
+}
+
+function talentBoard() {
+  const nodes = TALENTS[setup.player] || [];
+  const picked = picksFor(setup.player);
+  return `<div class="section-label">Talents</div>
+    <p class="map-note">One choice from each row. Saved in this browser.</p>
+    <div class="talent-board">${nodes.map((node, i) => `<div class="talent-node">
+      <span class="section-label">${esc(node.name)}</span>
+      <div class="talent-choices">${node.choices.map((choice) => `<button type="button" class="talent-choice ${picked[i] === choice.id ? "selected" : ""}" data-talent-node="${i}" data-talent="${choice.id}"><b>${esc(choice.name)}</b><span>${esc(choice.text)}</span></button>`).join("")}</div>
+    </div>`).join("")}</div>`;
 }
 
 function renderDossier() {
@@ -6934,6 +8860,9 @@ if (!window.HEADLESS) {
     wheelLock = now;
     fireToken(token, e.shiftKey);
   }, { capture: true, passive: false });
+  window.addEventListener("auxclick", (e) => {
+    if (e.button === 3 || e.button === 4) e.preventDefault();
+  });
   window.addEventListener("contextmenu", (e) => {
     if (lobbyRebinding()) e.preventDefault();
   });
@@ -6968,6 +8897,8 @@ window.Arena = {
   tallBoxes,
   veiledFromViewer,
   createMatch,
+  normalizeTalents,
+  rollTalents,
   tryCast,
   step: update,
   pack: packMatch,

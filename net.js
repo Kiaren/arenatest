@@ -67,13 +67,13 @@
     create(name) { this._send({ t: "create", name }); },
     join(code, name) { this._send({ t: "join", code, name }); },
     send(data) { this._send({ t: "relay", data }); },
-    queue(size, classId, name) { this._send({ t: "queue", size, classId, name }); },
-    queueBots(classId, name) { this._send({ t: "queue-bots", classId, name }); },
+    queue(size, classId, name, talents) { this._send({ t: "queue", size, classId, name, talents }); },
+    queueBots(classId, name, talents) { this._send({ t: "queue-bots", classId, name, talents }); },
     leaveQueue() { this._send({ t: "leave-queue" }); },
-    partyCreate(name, classId) { this._send({ t: "party-create", name, classId }); },
-    partyJoin(code, name, classId) { this._send({ t: "party-join", code, name, classId }); },
+    partyCreate(name, classId, talents) { this._send({ t: "party-create", name, classId, talents }); },
+    partyJoin(code, name, classId, talents) { this._send({ t: "party-join", code, name, classId, talents }); },
     partyLeave() { this._send({ t: "party-leave" }); },
-    partyClass(classId, name) { this._send({ t: "party-class", classId, name }); },
+    partyClass(classId, name, talents) { this._send({ t: "party-class", classId, name, talents }); },
     play(data) { this._send({ t: "play", data }); },
     _send(obj) {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));

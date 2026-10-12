@@ -25,6 +25,7 @@ const TYPES = {
   ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
+  ".glb": "model/gltf-binary",
 };
 
 const rooms = new Map();
@@ -176,6 +177,7 @@ function tryFill(size) {
       human: true,
       peerId: member.id,
       name: member.name,
+      talents: member.talents,
     };
   });
   beginLive(seated, roster);
@@ -186,6 +188,11 @@ function beginLive(humans, roster) {
   let arena;
   try {
     arena = bootArena();
+    for (const row of roster) {
+      row.talents = row.human
+        ? arena.normalizeTalents(row.classId, row.talents)
+        : arena.rollTalents(row.classId);
+    }
     arena.createMatch({ roster, netRole: "server" });
   } catch (err) {
     console.error(err);
@@ -301,6 +308,7 @@ function enqueueGroup(members, size) {
 function named(member, msg) {
   member.name = String(msg.name || member.name || "Player").slice(0, 16);
   if (msg.classId) member.classId = CLASS_IDS.has(msg.classId) ? msg.classId : member.classId;
+  if (Array.isArray(msg.talents)) member.talents = msg.talents.filter((id) => typeof id === "string").slice(0, 8);
 }
 
 function leaveRoom(member) {
@@ -431,6 +439,7 @@ function onText(member, text) {
       human: true,
       peerId: human.id,
       name: human.name,
+      talents: human.talents,
     }));
     for (let i = 0; i < size; i++) {
       roster.push({

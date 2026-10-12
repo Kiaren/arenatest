@@ -200,7 +200,19 @@ function makeFighter(unit) {
   group.add(actor);
 
   let material = null;
-  if (pack && clips) {
+  let built = null;
+  if (window.ARENA_FIGHTERS) {
+    try { built = ARENA_FIGHTERS.build(unit, actor); }
+    catch (err) { built = null; console.error(err); }
+  }
+  if (built) {
+    material = built.materials[0];
+    group.userData.actions = built.actions;
+    group.userData.poser = built.poser;
+    group.userData.mixer = built.mixer || null;
+    group.userData.clip = "";
+    fadeCast(group, "idle", false);
+  } else if (pack && clips) {
     const bones = pack.bones.map((bone) => {
       const node = new THREE.Bone();
       node.name = bone.name;
@@ -331,7 +343,7 @@ function makeFighter(unit) {
   group.add(label);
 
   group.userData.parts = {
-    actor, sheep, material, attack: kit.attack,
+    actor, sheep, material, materials: built && built.materials, crown: built && built.crown, attack: kit.attack,
     tint: material ? material.color.clone() : new THREE.Color(kit.tint),
     ring, select, ice, shield, deter, reflect, ember, castOrb, label, blob,
   };
@@ -367,7 +379,8 @@ function updateFighter(group, unit, match) {
   const now = match.time;
   const dt = Math.min(0.05, Math.max(0, now - (group.userData.lastTime ?? now)));
   group.userData.lastTime = now;
-  if (group.userData.mixer) group.userData.mixer.update(dt);
+  if (group.userData.poser) group.userData.poser.step(dt, group.userData.clip);
+  else if (group.userData.mixer) group.userData.mixer.update(dt);
 
   const current = group.userData.actions && group.userData.actions[group.userData.clip];
   const busy = !!(group.userData.once && current && current.isRunning());
@@ -424,7 +437,14 @@ function updateFighter(group, unit, match) {
     const heavy = unit.cast.ability.id === "pyroblast" || unit.cast.ability.id === "aimedShot";
     parts.castOrb.scale.setScalar((heavy ? 9 : 5.5) * (1 + Math.sin(match.time * 14) * 0.22));
   }
-  if (parts.material) {
+  if (parts.materials) {
+    const wash = dead || feign ? new THREE.Color("#8a847c") : cyclone ? new THREE.Color("#d7e7a0") : null;
+    for (const mat of parts.materials) {
+      if (!mat.userData.base) continue;
+      if (!wash) mat.color.copy(mat.userData.base);
+      else mat.color.copy(mat.userData.base).lerp(wash, 0.72);
+    }
+  } else if (parts.material) {
     const tint = dead || feign ? new THREE.Color("#8a847c") : cyclone ? new THREE.Color("#d7e7a0") : parts.tint;
     parts.material.color.copy(tint);
   }
@@ -444,7 +464,7 @@ function updateFighter(group, unit, match) {
     obj.material.needsUpdate = true;
     obj.castShadow = ghost >= 1;
   });
-  parts.label.position.y = sheep ? 1.45 : 2.8;
+  parts.label.position.y = sheep ? 1.45 : (parts.crown || 2.8);
   parts.label.scale.set(3.6, 1.01, 1);
   parts.label.visible = !dead;
   if (!dead) paintLabel(parts.label, unit);
@@ -1008,6 +1028,7 @@ function render(match, dt) {
   for (const unit of match.units) {
     let obj = gfx.fighters.get(unit.id);
     if (!obj) {
+      if (window.ARENA_FIGHTERS && ARENA_FIGHTERS.status === "loading") continue;
       obj = makeFighter(unit);
       gfx.fighters.set(unit.id, obj);
       gfx.scene.add(obj);
