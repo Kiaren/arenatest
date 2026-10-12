@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arena</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="lobby"></div>
+  <div id="match" class="hidden">
+    <div id="stage">
+      <canvas id="arena"></canvas>
+      <div id="unit-frames"></div>
+      <div id="match-info">
+        <div id="clock">0:00</div>
+        <div id="damp">Dampening 0%</div>
+        <div id="phase-label">Prepare</div>
+      </div>
+      <button type="button" id="leave-training" class="text-btn hidden">Back to lobby</button>
+      <div id="actionbar">
+        <div id="status-line"></div>
+        <div id="castbar" class="hidden">
+          <div id="cast-fill"></div>
+          <span id="cast-label"></span>
+        </div>
+        <div id="abilities"></div>
+        <div id="hint">WASD move · Space jump · right-drag orbit · wheel zoom · drag a unit frame to move it · ground aim then click</div>
+      </div>
+      <div id="log"></div>
+      <div id="announce"></div>
+      <div id="result" class="hidden"></div>
+    </div>
+  </div>
+  <div id="tooltip" class="hidden"></div>
+  <script src="three.min.js"></script>
+  <script src="assets/gltf-loader.js"></script>
+  <script src="assets/cast.js"></script>
+  <script src="assets/fighters.js"></script>
+  <script src="arena3d.js"></script>
+  <script src="net.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
