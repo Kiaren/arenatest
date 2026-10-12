@@ -4,6 +4,7 @@
   let ws = null;
   let generation = 0;
   let handler = function () {};
+  const tierOf = (classId) => (window.arenaGearTier ? window.arenaGearTier(classId) : 1);
 
   const net = {
     id: null,
@@ -67,13 +68,13 @@
     create(name) { this._send({ t: "create", name }); },
     join(code, name) { this._send({ t: "join", code, name }); },
     send(data) { this._send({ t: "relay", data }); },
-    queue(size, classId, name, talents) { this._send({ t: "queue", size, classId, name, talents }); },
-    queueBots(classId, name, talents) { this._send({ t: "queue-bots", classId, name, talents }); },
+    queue(size, classId, name, talents) { this._send({ t: "queue", size, classId, name, talents, tier: tierOf(classId) }); },
+    queueBots(classId, name, talents) { this._send({ t: "queue-bots", classId, name, talents, tier: tierOf(classId) }); },
     leaveQueue() { this._send({ t: "leave-queue" }); },
-    partyCreate(name, classId, talents) { this._send({ t: "party-create", name, classId, talents }); },
-    partyJoin(code, name, classId, talents) { this._send({ t: "party-join", code, name, classId, talents }); },
+    partyCreate(name, classId, talents) { this._send({ t: "party-create", name, classId, talents, tier: tierOf(classId) }); },
+    partyJoin(code, name, classId, talents) { this._send({ t: "party-join", code, name, classId, talents, tier: tierOf(classId) }); },
     partyLeave() { this._send({ t: "party-leave" }); },
-    partyClass(classId, name, talents) { this._send({ t: "party-class", classId, name, talents }); },
+    partyClass(classId, name, talents) { this._send({ t: "party-class", classId, name, talents, tier: tierOf(classId) }); },
     play(data) { this._send({ t: "play", data }); },
     _send(obj) {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));

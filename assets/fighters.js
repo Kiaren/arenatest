@@ -91,7 +91,7 @@
   };
 
   const LOOK = {
-    warrior: { model: "man", colors: { Shirt: "#8d5a32", Pants: "#3e2c22", Hair: "#241810", Socks: "#c8923a" } },
+    warrior: { model: "vanguard", baked: true, fallback: { model: "man", colors: { Shirt: "#2a3358", Pants: "#1c2236", Hair: "#16141a", Socks: "#141820", Skin: "#6f8f3e" } } },
     mage: { model: "woman", colors: { Skin: "#efc8aa", Red: "#1a1216", Brown: "#141014", LimeGreen: "#d7e6f5", Gold: "#2c5d86" } },
     hunter: { model: "man", colors: { Shirt: "#4e7a3a", Pants: "#5a4030", Hair: "#3a2818", Socks: "#d7c07a" } },
     priest: { model: "woman", colors: { Skin: "#f2d2b8", Red: "#c8b496", Brown: "#a89070", LimeGreen: "#f6f3ec", Gold: "#c6a15a" } },
@@ -108,6 +108,28 @@
     woman: { idle: "Idle", run: "Run", jump: "Idle", melee: "Sword_Slash", heavy: "Kick_Right", dual: "Punch_Left", shoot: "Gun_Shoot", cast: "Interact", channel: "Idle_Neutral", death: "Death" },
     man: { idle: "Man_Idle", run: "Man_Run", jump: "Man_Jump", melee: "Man_SwordSlash", heavy: "Man_SwordSlash", dual: "Man_Punch", shoot: "Man_Punch", cast: "Man_Punch", channel: "Man_Idle", death: "Man_Death" },
   };
+
+  // Full armor sets authored in Blender (tools/blender), each built on one of the base bodies.
+  // They load on demand, the first time a fighter of that class is needed.
+  const SETS = {
+    warrior: { url: "assets/heroes/vanguard.glb", clips: CLIP_NAMES.man },
+    mage: { url: "assets/heroes/mage.glb", clips: CLIP_NAMES.woman },
+    hunter: { url: "assets/heroes/hunter.glb", clips: CLIP_NAMES.man },
+    priest: { url: "assets/heroes/priest.glb", clips: CLIP_NAMES.woman },
+    warlock: { url: "assets/heroes/warlock.glb", clips: CLIP_NAMES.woman },
+    druid: { url: "assets/heroes/druid.glb", clips: CLIP_NAMES.man },
+    rogue: { url: "assets/heroes/rogue.glb", clips: CLIP_NAMES.woman },
+    warden: { url: "assets/heroes/warden.glb", clips: CLIP_NAMES.man },
+    binder: { url: "assets/heroes/binder.glb", clips: CLIP_NAMES.woman },
+    vow: { url: "assets/heroes/vow.glb", clips: CLIP_NAMES.woman },
+    duelist: { url: "assets/heroes/duelist.glb", clips: CLIP_NAMES.man },
+  };
+  const setState = {};
+
+  for (const id of Object.keys(SETS)) {
+    const base = LOOK[id];
+    LOOK[id] = { model: "set:" + id, baked: true, fallback: base.fallback || base };
+  }
 
   let heroCache = null;
   let status = window.GLTFLoader ? "loading" : "fallback";
@@ -135,8 +157,316 @@
     });
   }
 
+  const GEAR = {
+    warrior: { style: "plate", weapon: "swordShield", head: "helm" },
+    mage: { style: "robe", weapon: "staff", head: "hat" },
+    hunter: { style: "leather", weapon: "bow", head: "hood" },
+    priest: { style: "robe", weapon: "mace", head: "circlet" },
+    warlock: { style: "robe", weapon: "wand", head: "hood" },
+    druid: { style: "leather", weapon: "axe", head: "antler" },
+    rogue: { style: "leather", weapon: "daggers", head: "mask" },
+    warden: { style: "plate", weapon: "lantern", head: "helm" },
+    binder: { style: "coat", weapon: "book", head: "none" },
+    vow: { style: "robe", weapon: "mace", head: "circlet" },
+    duelist: { style: "coat", weapon: "rapier", head: "none" },
+  };
+
+  function wearRiggedGear(model, classId, look, materials) {
+    const gear = GEAR[classId] || GEAR.warrior;
+    const clothHex = look.colors.LimeGreen || look.colors.Shirt || "#8d5a32";
+    const trimHex = look.colors.Gold || look.colors.Socks || "#d7a15a";
+    const leatherHex = look.colors.Pants || look.colors.Brown || "#4a3428";
+    function slot(color, roughness, metalness, side) {
+      const mat = makeMat({ color, roughness, metalness, side });
+      materials.push(mat);
+      return mat;
+    }
+    const steel = slot("#c5ccd4", 0.34, 0.2);
+    const trim = slot(trimHex, 0.42, 0.14);
+    const cloth = slot(clothHex, 0.84, 0.02, THREE.DoubleSide);
+    const leather = slot(leatherHex, 0.74, 0.04);
+    const dark = slot("#1a1614", 0.5, 0.02);
+    const bone = (name) => model.getObjectByName(name);
+    const modelQuat = () => {
+      const q = new THREE.Quaternion();
+      model.getWorldQuaternion(q);
+      return q;
+    };
+    function placeOnBone(host, mesh, offset) {
+      if (!host || !mesh) return null;
+      host.updateWorldMatrix(true, false);
+      const origin = new THREE.Vector3();
+      host.getWorldPosition(origin);
+      const world = origin.add(offset.clone().applyQuaternion(modelQuat()));
+      mesh.position.copy(host.worldToLocal(world));
+      const bq = new THREE.Quaternion();
+      host.getWorldQuaternion(bq);
+      mesh.quaternion.copy(bq.invert().multiply(modelQuat()));
+      const ws = new THREE.Vector3();
+      host.getWorldScale(ws);
+      mesh.scale.setScalar(1 / Math.max(ws.x, 0.0001));
+      mesh.castShadow = true;
+      mesh.frustumCulled = false;
+      host.add(mesh);
+      return mesh;
+    }
+    function alongBone(host, geo, mat, along) {
+      if (!host) return null;
+      host.updateWorldMatrix(true, false);
+      const mesh = new THREE.Mesh(geo, mat);
+      const ws = new THREE.Vector3();
+      host.getWorldScale(ws);
+      const unit = 1 / Math.max(ws.y, 0.0001);
+      mesh.scale.setScalar(unit);
+      mesh.position.y = along * unit;
+      mesh.castShadow = true;
+      mesh.frustumCulled = false;
+      host.add(mesh);
+      return mesh;
+    }
+    function grip(host) {
+      if (!host) return null;
+      host.updateWorldMatrix(true, false);
+      const g = new THREE.Group();
+      const ws = new THREE.Vector3();
+      host.getWorldScale(ws);
+      g.scale.setScalar(1 / Math.max(ws.y, 0.0001));
+      host.add(g);
+      return g;
+    }
+    function put(geo, mat, parent, x, y, z, rx, ry, rz) {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      m.rotation.set(rx || 0, ry || 0, rz || 0);
+      m.castShadow = true;
+      m.frustumCulled = false;
+      parent.add(m);
+      return m;
+    }
+
+    const torso = bone("Chest") || bone("Torso");
+    const hips = bone("Hips");
+    const head = bone("Head");
+    const right = bone("Palm.R") || bone("Wrist.R");
+    const left = bone("Palm.L") || bone("Wrist.L");
+
+    if (classId === "warrior") {
+      const plate = slot("#3a4468", 0.38, 0.22);
+      const plateDark = slot("#23283c", 0.46, 0.16);
+      const crimson = slot("#a33a52", 0.42, 0.12);
+      const spike = slot("#d5d8e6", 0.32, 0.28);
+      const glow = slot("#ff4a58", 0.28, 0.04);
+      glow.emissive = new THREE.Color("#ff2030");
+      glow.emissiveIntensity = 1.15;
+      glow.userData.base = glow.color.clone();
+      const edge = slot("#ffd2d6", 0.24, 0.06);
+      edge.emissive = new THREE.Color("#ff6674");
+      edge.emissiveIntensity = 0.7;
+      edge.userData.base = edge.color.clone();
+      function mount(host, offset) {
+        const g = new THREE.Group();
+        placeOnBone(host, g, offset);
+        return g;
+      }
+      function add(parent, geo, mat, x, y, z, rx, ry, rz) {
+        if (!parent) return null;
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x || 0, y || 0, z || 0);
+        m.rotation.set(rx || 0, ry || 0, rz || 0);
+        m.castShadow = true;
+        m.frustumCulled = false;
+        parent.add(m);
+        return m;
+      }
+      function pauldron(host, side) {
+        const pad = mount(host, new THREE.Vector3(side * 0.12, 0.1, 0));
+        const shell = add(pad, sph(0.2, 12, 10), plate);
+        if (shell) shell.scale.set(1.35, 0.72, 1.15);
+        add(pad, box(0.28, 0.08, 0.22), crimson, 0, -0.02, 0.04);
+        add(pad, cone(0.045, 0.32), spike, side * 0.02, 0.16, 0.02, -0.15, 0, side * -0.35);
+        add(pad, cone(0.035, 0.24), spike, side * -0.08, 0.12, 0.06, 0.2, 0, side * 0.5);
+        add(pad, cone(0.03, 0.2), spike, side * 0.1, 0.1, -0.04, -0.3, 0, side * -0.9);
+        add(pad, cone(0.05, 0.62), spike, side * -0.04, 0.34, -0.02, -0.55, 0, side * -0.45);
+        return pad;
+      }
+      pauldron(bone("Shoulder.R"), -1);
+      pauldron(bone("Shoulder.L"), 1);
+      const chest = mount(torso, new THREE.Vector3(0, 0.06, 0.12));
+      add(chest, box(0.5, 0.56, 0.14), plate);
+      add(chest, box(0.18, 0.32, 0.05), crimson, 0, 0.02, 0.08);
+      add(chest, cone(0.055, 0.18), spike, 0, 0.04, 0.14, -Math.PI / 2, 0, 0);
+      add(chest, box(0.52, 0.07, 0.1), crimson, 0, -0.24, 0.02);
+      add(chest, box(0.16, 0.08, 0.06), spike, 0, -0.24, 0.08);
+      const helm = mount(head, new THREE.Vector3(0, 0.12, 0));
+      const dome = add(helm, sph(0.17, 14, 12), plateDark);
+      if (dome) dome.scale.set(1.2, 0.78, 1.05);
+      add(helm, box(0.26, 0.05, 0.08), plate, 0, 0.02, 0.1);
+      add(helm, box(0.05, 0.14, 0.06), crimson, -0.11, -0.02, 0.09);
+      add(helm, box(0.05, 0.14, 0.06), crimson, 0.11, -0.02, 0.09);
+      add(helm, cone(0.04, 0.48), spike, -0.12, 0.2, -0.02, -0.25, 0, -0.7);
+      add(helm, cone(0.04, 0.48), spike, 0.12, 0.2, -0.02, -0.25, 0, 0.7);
+      add(helm, cone(0.025, 0.16), spike, 0, 0.2, 0.06, -0.4, 0, 0);
+      alongBone(bone("UpperArm.R"), cyl(0.08, 0.26, 8), plate, 0.12);
+      alongBone(bone("UpperArm.L"), cyl(0.08, 0.26, 8), plate, 0.12);
+      alongBone(bone("LowerArm.R"), cyl(0.06, 0.22, 8), plateDark, 0.1);
+      alongBone(bone("LowerArm.L"), cyl(0.06, 0.22, 8), plateDark, 0.1);
+      alongBone(bone("UpperLeg.R"), cyl(0.1, 0.32, 8), plate, 0.16);
+      alongBone(bone("UpperLeg.L"), cyl(0.1, 0.32, 8), plate, 0.16);
+      alongBone(bone("LowerLeg.R"), cyl(0.08, 0.3, 8), plateDark, 0.14);
+      alongBone(bone("LowerLeg.L"), cyl(0.08, 0.3, 8), plateDark, 0.14);
+      const gripR = grip(right);
+      if (gripR) {
+        put(cyl(0.028, 0.2, 6), dark, gripR, 0, 0.08, 0);
+        put(cone(0.05, 0.2), plateDark, gripR, 0.12, 0.2, 0, 0, 0, -Math.PI / 2);
+        put(cone(0.04, 0.16), plateDark, gripR, -0.1, 0.2, 0, 0, 0, Math.PI / 2);
+        put(box(0.05, 0.16, 0.08), crimson, gripR, 0, 0.2, 0);
+        put(box(0.16, 0.78, 0.04), glow, gripR, 0.03, 0.68, 0);
+        put(box(0.05, 0.72, 0.055), edge, gripR, 0.1, 0.66, 0);
+        put(cone(0.09, 0.26), glow, gripR, 0.03, 1.16, 0);
+        for (let i = 0; i < 5; i++) put(cone(0.035, 0.12), edge, gripR, 0.14, 0.38 + i * 0.13, 0, 0, 0, -Math.PI / 2);
+      }
+      return;
+    }
+
+    if (gear.style === "plate") {
+      placeOnBone(torso, new THREE.Mesh(box(0.42, 0.48, 0.1), steel), new THREE.Vector3(0, 0.04, 0.12));
+      placeOnBone(torso, new THREE.Mesh(box(0.18, 0.08, 0.12), trim), new THREE.Vector3(0, 0.18, 0.15));
+      placeOnBone(bone("Shoulder.R"), new THREE.Mesh(sph(0.12, 10, 8), steel), new THREE.Vector3(-0.02, 0.04, 0));
+      placeOnBone(bone("Shoulder.L"), new THREE.Mesh(sph(0.12, 10, 8), steel), new THREE.Vector3(0.02, 0.04, 0));
+      alongBone(bone("UpperArm.R"), cyl(0.075, 0.24, 8), steel, 0.12);
+      alongBone(bone("UpperArm.L"), cyl(0.075, 0.24, 8), steel, 0.12);
+      alongBone(bone("LowerArm.R"), cyl(0.055, 0.2, 8), steel, 0.1);
+      alongBone(bone("LowerArm.L"), cyl(0.055, 0.2, 8), steel, 0.1);
+    } else if (gear.style === "robe") {
+      placeOnBone(hips, new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.36, 0.82, 12, 1, true), cloth), new THREE.Vector3(0, -0.32, 0.02));
+      placeOnBone(torso, new THREE.Mesh(box(0.36, 0.44, 0.08), cloth), new THREE.Vector3(0, 0.06, 0.09));
+      placeOnBone(torso, new THREE.Mesh(box(0.38, 0.06, 0.1), trim), new THREE.Vector3(0, 0.22, 0.1));
+    } else {
+      placeOnBone(torso, new THREE.Mesh(box(0.4, 0.18, 0.08), leather), new THREE.Vector3(0, 0.02, 0.1));
+      placeOnBone(torso, new THREE.Mesh(box(0.42, 0.05, 0.09), trim), new THREE.Vector3(0, 0.14, 0.11));
+      placeOnBone(bone("Shoulder.R"), new THREE.Mesh(sph(0.09, 8, 6), leather), new THREE.Vector3(-0.02, 0.03, 0));
+      placeOnBone(bone("Shoulder.L"), new THREE.Mesh(sph(0.09, 8, 6), leather), new THREE.Vector3(0.02, 0.03, 0));
+    }
+    if (torso && gear.style !== "leather") {
+      placeOnBone(torso, new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.86), cloth), new THREE.Vector3(0, -0.16, -0.18));
+    }
+
+    if (head && gear.head === "helm") {
+      const dome = placeOnBone(head, new THREE.Mesh(sph(0.17, 14, 12), steel), new THREE.Vector3(0, 0.12, -0.02));
+      if (dome) dome.scale.multiply(new THREE.Vector3(1.08, 0.78, 0.72));
+      placeOnBone(head, new THREE.Mesh(box(0.22, 0.045, 0.05), trim), new THREE.Vector3(0, 0.08, 0.1));
+    } else if (head && gear.head === "hat") {
+      placeOnBone(head, new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.03, 14), cloth), new THREE.Vector3(0, 0.18, 0));
+      placeOnBone(head, new THREE.Mesh(cone(0.11, 0.32), cloth), new THREE.Vector3(0, 0.34, 0));
+      placeOnBone(head, new THREE.Mesh(cyl(0.12, 0.045, 10), trim), new THREE.Vector3(0, 0.2, 0));
+    } else if (head && gear.head === "hood") {
+      const hood = placeOnBone(head, new THREE.Mesh(sph(0.17, 12, 10), cloth), new THREE.Vector3(0, 0.1, -0.05));
+      if (hood) hood.scale.multiply(new THREE.Vector3(1.05, 1.1, 0.8));
+    } else if (head && gear.head === "circlet") {
+      const ring = placeOnBone(head, new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.016, 6, 16), trim), new THREE.Vector3(0, 0.16, 0));
+      if (ring) ring.rotateX(Math.PI / 2);
+    } else if (head && gear.head === "antler") {
+      placeOnBone(head, new THREE.Mesh(cyl(0.014, 0.26, 5), leather), new THREE.Vector3(-0.1, 0.26, 0));
+      placeOnBone(head, new THREE.Mesh(cyl(0.014, 0.26, 5), leather), new THREE.Vector3(0.1, 0.26, 0));
+    } else if (head && gear.head === "mask") {
+      placeOnBone(head, new THREE.Mesh(box(0.18, 0.07, 0.03), dark), new THREE.Vector3(0, 0.1, 0.11));
+    }
+
+    const gripR = grip(right);
+    const gripL = grip(left);
+    if (gripR && (gear.weapon === "swordShield" || gear.weapon === "axe")) {
+      put(box(0.055, 0.78, 0.02), steel, gripR, 0, 0.48, 0);
+      put(box(0.18, 0.035, 0.04), trim, gripR, 0, 0.12, 0);
+      put(cyl(0.02, 0.16, 6), leather, gripR, 0, 0.02, 0);
+      if (gear.weapon === "axe") put(box(0.24, 0.18, 0.03), steel, gripR, 0.1, 0.72, 0);
+    }
+    if (left && gear.weapon === "swordShield") {
+      const shield = placeOnBone(left, new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.05, 16), steel), new THREE.Vector3(0.04, 0.02, 0.08));
+      if (shield) shield.rotateX(Math.PI / 2);
+      placeOnBone(left, new THREE.Mesh(cyl(0.07, 0.06, 8), trim), new THREE.Vector3(0.04, 0.02, 0.1));
+    }
+    if (gripR && gear.weapon === "staff") {
+      put(cyl(0.028, 1.4, 8), leather, gripR, 0, 0.4, 0);
+      put(sph(0.09, 10, 8), trim, gripR, 0, 1.12, 0);
+    }
+    if (left && gear.weapon === "bow") {
+      const arc = placeOnBone(left, new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.016, 6, 18, Math.PI), leather), new THREE.Vector3(0, 0.05, 0.06));
+      if (arc) arc.rotateZ(Math.PI / 2);
+    }
+    if (gripR && gear.weapon === "mace") {
+      put(cyl(0.022, 0.58, 6), leather, gripR, 0, 0.24, 0);
+      put(sph(0.09, 8, 6), steel, gripR, 0, 0.56, 0);
+    }
+    if (gripR && gear.weapon === "wand") {
+      put(cyl(0.016, 0.46, 6), dark, gripR, 0, 0.22, 0);
+      put(sph(0.045, 8, 6), trim, gripR, 0, 0.46, 0);
+    }
+    if (gripL && gear.weapon === "book") {
+      put(box(0.22, 0.28, 0.05), leather, gripL, 0, 0.06, 0.04);
+      put(box(0.18, 0.24, 0.012), trim, gripL, 0, 0.06, 0.07);
+    }
+    if (gripR && gear.weapon === "daggers") {
+      put(box(0.028, 0.4, 0.012), steel, gripR, 0, 0.24, 0);
+      if (gripL) put(box(0.028, 0.4, 0.012), steel, gripL, 0, 0.24, 0);
+    }
+    if (gripR && gear.weapon === "lantern") {
+      put(box(0.16, 0.22, 0.16), dark, gripR, 0, 0.18, 0);
+      const lamp = put(sph(0.07, 8, 6), trim, gripR, 0, 0.18, 0);
+      lamp.material = lamp.material.clone();
+      lamp.material.emissive = new THREE.Color("#ffb15a");
+      lamp.material.emissiveIntensity = 0.85;
+      lamp.material.userData.base = lamp.material.color.clone();
+      materials.push(lamp.material);
+    }
+    if (left && gear.weapon === "lantern") {
+      placeOnBone(left, new THREE.Mesh(box(0.32, 0.46, 0.05), steel), new THREE.Vector3(0, 0.04, 0.08));
+    }
+    if (gripR && gear.weapon === "rapier") {
+      put(box(0.02, 0.86, 0.012), steel, gripR, 0, 0.5, 0);
+      const guard = put(new THREE.TorusGeometry(0.055, 0.012, 6, 12), trim, gripR, 0, 0.1, 0);
+      guard.rotation.x = Math.PI / 2;
+    }
+  }
+
+  function championAura(unit, actor, materials) {
+    const def = typeof CLASSES !== "undefined" ? CLASSES[unit.classId] : null;
+    const tint = new THREE.Color(def ? def.color : "#e0c17a");
+    for (const mat of materials) {
+      if (!mat.emissive || mat.userData.glow || mat.emissive.getHex() !== 0) continue;
+      mat.emissive.copy(tint);
+      mat.emissiveIntensity = 0.12;
+    }
+    const ringMat = new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.15, 48), ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04;
+    actor.add(ring);
+    const moteMat = new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+    const motes = new THREE.Group();
+    const moteGeo = new THREE.SphereGeometry(0.06, 8, 6);
+    for (let i = 0; i < 6; i++) {
+      const mote = new THREE.Mesh(moteGeo, moteMat);
+      mote.userData.phase = (i / 6) * Math.PI * 2;
+      motes.add(mote);
+    }
+    actor.add(motes);
+    ring.onBeforeRender = () => {
+      const t = performance.now() / 1000;
+      const ghost = unit.hp > 0 ? (ringMat.userData.ghost != null ? ringMat.userData.ghost : 1) : 0;
+      ringMat.opacity = (0.35 + 0.2 * Math.sin(t * 2.4)) * ghost;
+      ringMat.depthWrite = false;
+      moteMat.opacity = 0.85 * ghost;
+      moteMat.depthWrite = false;
+      motes.children.forEach((mote, i) => {
+        const a = mote.userData.phase + t * 0.9;
+        mote.position.set(Math.cos(a) * 0.85, 0.4 + ((t * 0.5 + i / 6) % 1) * 1.9, Math.sin(a) * 0.85);
+      });
+    };
+  }
+
   function buildRigged(unit, actor) {
-    const look = LOOK[unit.classId] || LOOK.warrior;
+    let look = LOOK[unit.classId] || LOOK.warrior;
+    if (!heroCache[look.model] && look.fallback) look = look.fallback;
     const src = heroCache[look.model];
     if (!src || !window.SkeletonUtils) return null;
     const model = SkeletonUtils.clone(src.scene);
@@ -149,28 +479,63 @@
       const list = Array.isArray(obj.material) ? obj.material : [obj.material];
       const next = list.map((mat) => {
         const copy = mat.clone();
-        const hex = look.colors[mat.name];
-        if (hex) copy.color.set(hex);
-        copy.metalness = mat.name === "Gold" ? 0.16 : 0.02;
-        copy.roughness = mat.name === "Gold" ? 0.4 : 0.72;
+        if (look.baked) {
+          if (copy.metalness > 0.3 && window.ARENA_ENV) copy.envMap = window.ARENA_ENV;
+        } else {
+          const hex = look.colors[mat.name];
+          if (hex) copy.color.set(hex);
+          copy.metalness = mat.name === "Gold" ? 0.16 : 0.02;
+          copy.roughness = mat.name === "Gold" ? 0.4 : 0.72;
+        }
         copy.userData.base = copy.color.clone();
         materials.push(copy);
         return copy;
       });
       obj.material = Array.isArray(obj.material) ? next : next[0];
     });
-    model.rotation.y = Math.PI;
     model.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(model);
+    // Height comes from the skinned body alone, so tall helms and horns don't shrink the fighter.
+    const box = new THREE.Box3();
+    model.traverse((obj) => {
+      if (obj.isSkinnedMesh) box.expandByObject(obj);
+    });
+    if (box.isEmpty()) box.setFromObject(model);
     const height = Math.max(0.001, box.max.y - box.min.y);
     const scale = 2.15 / height;
     model.scale.setScalar(scale);
     model.position.y = -box.min.y * scale;
     actor.add(model);
+    model.updateMatrixWorld(true);
+    if (!look.baked) wearRiggedGear(model, unit.classId, look, materials);
+    if (unit.gearTier === 2) championAura(unit, actor, materials);
     const mixer = new THREE.AnimationMixer(model);
     const actions = {};
     for (const [name, clip] of Object.entries(src.clips)) actions[name] = mixer.clipAction(clip);
-    return { materials, actions, mixer, poser: null, crown: 2.35 };
+    let crown = 2.35;
+    if (look.baked) {
+      const full = new THREE.Box3().setFromObject(model);
+      crown = Math.min(2.95, Math.max(2.35, full.max.y - actor.position.y + 0.12));
+    }
+    return { materials, actions, mixer, poser: null, crown };
+  }
+
+  // True while this class's armor set is still downloading; starts the download on first ask.
+  function pending(classId) {
+    const set = SETS[classId];
+    if (!set || !heroCache || status !== "ready") return false;
+    const state = setState[classId];
+    if (state === "ready" || state === "failed") return false;
+    if (!state) {
+      setState[classId] = "loading";
+      loadHero(set.url).then((gltf) => {
+        heroCache["set:" + classId] = prepHero(gltf, set.clips);
+        setState[classId] = "ready";
+      }).catch((err) => {
+        console.error(err);
+        setState[classId] = "failed";
+      });
+    }
+    return true;
   }
 
   const ready = status === "loading"
@@ -711,6 +1076,7 @@
   window.ARENA_FIGHTERS = {
     build,
     ready,
+    pending,
     get status() { return status; },
   };
 })();

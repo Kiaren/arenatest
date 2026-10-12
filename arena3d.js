@@ -565,6 +565,32 @@ function stoneTexture(tint) {
   });
 }
 
+function armorEnvironment(renderer) {
+  if (!THREE.PMREMGenerator) return null;
+  const room = new THREE.Scene();
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(10, 32, 16),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      vertexShader: "varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: "varying vec3 vDir; void main() { float h = vDir.y; vec3 sky = mix(vec3(0.55, 0.45, 0.38), vec3(0.85, 0.8, 0.78), smoothstep(0.0, 0.8, h)); vec3 ground = vec3(0.22, 0.16, 0.12); gl_FragColor = vec4(h > 0.0 ? sky : ground, 1.0); }",
+    })
+  );
+  room.add(shell);
+  const panel = (color, x, y, z, w, h) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+    mesh.position.set(x, y, z);
+    mesh.lookAt(0, 0, 0);
+    room.add(mesh);
+  };
+  panel(new THREE.Color(3.2, 3.0, 2.7), 5, 7, 3, 5, 3);
+  panel(new THREE.Color(1.4, 1.6, 2.0), -6, 3, -5, 4, 3);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const tex = pmrem.fromScene(room, 0.04).texture;
+  pmrem.dispose();
+  return tex;
+}
+
 function buildScene() {
   const canvas = document.getElementById("arena");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -576,6 +602,8 @@ function buildScene() {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
   }
+
+  window.ARENA_ENV = armorEnvironment(renderer);
 
   const scene = new THREE.Scene();
   scene.background = skyTexture();
@@ -1028,7 +1056,7 @@ function render(match, dt) {
   for (const unit of match.units) {
     let obj = gfx.fighters.get(unit.id);
     if (!obj) {
-      if (window.ARENA_FIGHTERS && ARENA_FIGHTERS.status === "loading") continue;
+      if (window.ARENA_FIGHTERS && (ARENA_FIGHTERS.status === "loading" || (ARENA_FIGHTERS.pending && ARENA_FIGHTERS.pending(unit.classId)))) continue;
       obj = makeFighter(unit);
       gfx.fighters.set(unit.id, obj);
       gfx.scene.add(obj);

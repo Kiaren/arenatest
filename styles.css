@@ -158,6 +158,47 @@ button, input { font-family: inherit; }
 
 .class-meta { min-width: 0; }
 
+.class-level {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+
+.class-level.max {
+  color: var(--gold);
+  border-color: var(--gold-dim);
+}
+
+.xp-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 10px;
+  font-size: 13px;
+}
+
+.xp-bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.xp-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #8a6a2c, var(--gold));
+}
+
+.xp-count { color: var(--muted); font-size: 11px; }
+
+.xp-up { color: var(--gold); }
+
 .crest {
   width: 36px;
   height: 36px;

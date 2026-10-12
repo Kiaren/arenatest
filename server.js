@@ -178,6 +178,7 @@ function tryFill(size) {
       peerId: member.id,
       name: member.name,
       talents: member.talents,
+      tier: member.tier === 2 ? 2 : 1,
     };
   });
   beginLive(seated, roster);
@@ -309,6 +310,7 @@ function named(member, msg) {
   member.name = String(msg.name || member.name || "Player").slice(0, 16);
   if (msg.classId) member.classId = CLASS_IDS.has(msg.classId) ? msg.classId : member.classId;
   if (Array.isArray(msg.talents)) member.talents = msg.talents.filter((id) => typeof id === "string").slice(0, 8);
+  if (msg.tier != null) member.tier = msg.tier === 2 ? 2 : 1;
 }
 
 function leaveRoom(member) {
@@ -440,6 +442,7 @@ function onText(member, text) {
       peerId: human.id,
       name: human.name,
       talents: human.talents,
+      tier: human.tier === 2 ? 2 : 1,
     }));
     for (let i = 0; i < size; i++) {
       roster.push({

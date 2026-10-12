@@ -4396,6 +4396,46 @@ function saveTalents() {
   try { localStorage.setItem("arenaTalents", JSON.stringify(talentPicks)); } catch (err) { /* ignore */ }
 }
 
+const LEVEL_CAP = 10;
+const XP_WIN = 100;
+const XP_LOSS = 40;
+let classXp = {};
+
+try {
+  classXp = JSON.parse(localStorage.getItem("arenaLevels") || "{}") || {};
+} catch (err) {
+  classXp = {};
+}
+
+function xpToNext(level) {
+  return 100 + 50 * (level - 1);
+}
+
+function levelInfo(classId) {
+  let xp = Math.max(0, Number(classXp[classId]) || 0);
+  let level = 1;
+  while (level < LEVEL_CAP && xp >= xpToNext(level)) {
+    xp -= xpToNext(level);
+    level++;
+  }
+  const need = level >= LEVEL_CAP ? 0 : xpToNext(level);
+  return { level, xp: need ? xp : 0, need };
+}
+
+function gearTier(classId) {
+  return levelInfo(classId).level >= LEVEL_CAP ? 2 : 1;
+}
+
+function addClassXp(classId, amount) {
+  const before = levelInfo(classId).level;
+  classXp[classId] = (Number(classXp[classId]) || 0) + amount;
+  try { localStorage.setItem("arenaLevels", JSON.stringify(classXp)); } catch (err) { /* ignore */ }
+  const after = levelInfo(classId);
+  return { amount, before, ...after };
+}
+
+window.arenaGearTier = gearTier;
+
 function normalizeTalents(classId, picks) {
   const nodes = TALENTS[classId];
   if (!nodes) return [];
@@ -4439,9 +4479,9 @@ function setTalent(nodeIndex, choiceId) {
     const mine = (room.slots || []).findIndex((slot) => slot.peerId === ArenaNet.id);
     if (mine >= 0) {
       if (iAmHost()) {
-        claimSlot(mine, ArenaNet.id, playerName, setup.player, next);
+        claimSlot(mine, ArenaNet.id, playerName, setup.player, next, gearTier(setup.player));
         broadcastLobby();
-      } else ArenaNet.send({ kind: "claim", slot: mine, classId: setup.player, name: playerName, talents: next });
+      } else ArenaNet.send({ kind: "claim", slot: mine, classId: setup.player, name: playerName, talents: next, tier: gearTier(setup.player) });
     }
   }
 }
@@ -5851,6 +5891,7 @@ function makeUnit(classId, team, x, y, opts) {
     human: opts.human != null ? !!opts.human : isPlayer,
     peerId: opts.peerId || null,
     givenName: opts.name || null,
+    gearTier: opts.tier === 2 ? 2 : 1,
     name: def.name,
     x,
     y,
@@ -5928,6 +5969,7 @@ function rosterFromSpec(spec) {
   allies.forEach((classId, i) => roster.push({
     id: id++, classId, team: "ally", x: 18, y: ay[i], human: i === 0, local: i === 0, peerId: null, name: null,
     talents: i === 0 ? picksFor(classId) : rollTalents(classId),
+    tier: i === 0 ? gearTier(classId) : 1,
   }));
   enemies.forEach((classId, i) => roster.push({
     id: id++, classId, team: "enemy", x: 82, y: ey[i], human: false, local: false, peerId: null, name: null,
@@ -7618,8 +7660,25 @@ function resizeCanvas() {
   layoutFrames();
 }
 
+function xpLine() {
+  const me = match.player;
+  if (!me || match.training) return "";
+  if (!match.xp) match.xp = addClassXp(me.classId, match.win ? XP_WIN : XP_LOSS);
+  const got = match.xp;
+  const name = esc(CLASSES[me.classId].name);
+  const bar = got.need ? `<span class="xp-bar"><i style="width:${Math.round((got.xp / got.need) * 100)}%"></i></span><span class="xp-count">${got.xp} / ${got.need} XP</span>` : "";
+  let note = "";
+  if (got.level > got.before) {
+    note = got.level >= LEVEL_CAP
+      ? `<b class="xp-up">${name} reached level ${LEVEL_CAP}. Champion set unlocked.</b>`
+      : `<b class="xp-up">${name} reached level ${got.level}.</b>`;
+  }
+  return `<div class="xp-line"><span>+${got.amount} XP · ${name} level ${got.level}</span>${bar}${note}</div>`;
+}
+
 function showResult() {
   if (window.HEADLESS) return;
+  const xp = xpLine();
   const rows = match.units.map((u) => `<tr><td>${u.name}</td><td>${CLASSES[u.classId].name}</td><td>${Math.round(u.stats.damage)}</td><td>${Math.round(u.stats.healing)}</td><td>${u.hp > 0 ? "Up" : "Dead"}</td></tr>`).join("");
   $("result").innerHTML = `
     <div class="result-card ${match.win ? "win" : "loss"}">
@@ -7630,6 +7689,7 @@ function showResult() {
           <p>${match.win ? "Your team is still standing." : "Your team is down."} ${MAPS[match.map] ? MAPS[match.map].name : "Arena"} · ${fmtTime(fightSeconds())} · dampening ${Math.round(currentDamp() * 100)}%.</p>
         </div>
       </div>
+      ${xp}
       <table>
         <thead><tr><th>Fighter</th><th>Class</th><th>Damage</th><th>Healing</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
@@ -8030,7 +8090,7 @@ function broadcastLobby() {
   ArenaNet.send({ kind: "lobby", code: room.code, size: setup.size, slots: room.slots });
 }
 
-function claimSlot(index, peerId, name, classId, talents) {
+function claimSlot(index, peerId, name, classId, talents, tier) {
   if (!room || !room.slots[index]) return false;
   const slot = room.slots[index];
   if (slot.kind === "human" && slot.peerId && slot.peerId !== peerId) return false;
@@ -8046,6 +8106,7 @@ function claimSlot(index, peerId, name, classId, talents) {
   slot.name = String(name || "Player").slice(0, 16);
   if (CLASSES[classId]) slot.classId = classId;
   if (Array.isArray(talents)) slot.talents = normalizeTalents(slot.classId, talents);
+  slot.tier = tier === 2 ? 2 : 1;
   return true;
 }
 
@@ -8088,7 +8149,7 @@ function onNetMessage(msg) {
     queueing = false;
     fitTeams();
     room = { code: msg.code, slots: makeSlots(setup.size) };
-    claimSlot(0, ArenaNet.id, playerName, setup.player);
+    claimSlot(0, ArenaNet.id, playerName, setup.player, undefined, gearTier(setup.player));
     netStatus = "Room open. Share the code.";
     broadcastLobby();
     renderLobby();
@@ -8150,7 +8211,7 @@ function onNetMessage(msg) {
     return;
   }
   if (data.kind === "claim" && iAmHost()) {
-    claimSlot(data.slot, msg.from, data.name, data.classId, data.talents);
+    claimSlot(data.slot, msg.from, data.name, data.classId, data.talents, data.tier);
     broadcastLobby();
     if (!match) renderLobby();
     return;
@@ -8346,6 +8407,7 @@ function startOnline() {
     peerId: slot.kind === "human" ? slot.peerId : null,
     name: slot.kind === "human" ? slot.name : null,
     talents: slot.kind === "human" ? normalizeTalents(slot.classId, slot.talents) : rollTalents(slot.classId),
+    tier: slot.kind === "human" && slot.tier === 2 ? 2 : 1,
   }));
   const map = rollMap();
   ArenaNet.send({ kind: "start", roster, map });
@@ -8359,6 +8421,7 @@ function renderLobby() {
     return `<button type="button" class="class-card ${selected ? "selected" : ""}" data-class="${id}" style="--accent:${cls.color}">
       <img class="crest" alt="" src="${spellIcon(CLASS_CREST[id] || "charge")}">
       <span class="class-meta"><b>${esc(cls.name)}</b><span class="role">${esc(cls.role)}</span></span>
+      <span class="class-level ${gearTier(id) === 2 ? "max" : ""}">Lv ${levelInfo(id).level}</span>
     </button>`;
   };
   const chips = (group, current) => Object.keys(CLASSES).map((id) => {
@@ -8520,9 +8583,10 @@ function renderLobby() {
         if (mine >= 0) {
           if (iAmHost()) {
             room.slots[mine].classId = setup.player;
+            room.slots[mine].tier = gearTier(setup.player);
             broadcastLobby();
           } else {
-            ArenaNet.send({ kind: "claim", slot: mine, classId: setup.player, name: playerName });
+            ArenaNet.send({ kind: "claim", slot: mine, classId: setup.player, name: playerName, tier: gearTier(setup.player) });
           }
         }
       }
@@ -8602,11 +8666,11 @@ function renderLobby() {
       readIdentity();
       const index = Number(btn.dataset.claim);
       if (iAmHost()) {
-        claimSlot(index, ArenaNet.id, playerName, setup.player, picksFor(setup.player));
+        claimSlot(index, ArenaNet.id, playerName, setup.player, picksFor(setup.player), gearTier(setup.player));
         broadcastLobby();
         renderLobby();
       } else if (window.ArenaNet) {
-        ArenaNet.send({ kind: "claim", slot: index, classId: setup.player, name: playerName, talents: picksFor(setup.player) });
+        ArenaNet.send({ kind: "claim", slot: index, classId: setup.player, name: playerName, talents: picksFor(setup.player), tier: gearTier(setup.player) });
       }
     });
   });
@@ -8648,7 +8712,11 @@ function renderDossier() {
   const cls = CLASSES[setup.player];
   const dossier = $("dossier");
   if (!cls || !dossier) return;
-  dossier.innerHTML = `<h3>${esc(cls.name)} kit</h3>` + cls.abilities.map((a) => {
+  const lv = levelInfo(setup.player);
+  const progress = lv.need
+    ? `<div class="xp-line"><span>Level ${lv.level} of ${LEVEL_CAP}. The champion set unlocks at level ${LEVEL_CAP}.</span><span class="xp-bar"><i style="width:${Math.round((lv.xp / lv.need) * 100)}%"></i></span><span class="xp-count">${lv.xp} / ${lv.need} XP · win ${XP_WIN}, loss ${XP_LOSS}</span></div>`
+    : `<div class="xp-line"><b class="xp-up">Level ${LEVEL_CAP}. Champion set equipped.</b></div>`;
+  dossier.innerHTML = `<h3>${esc(cls.name)} kit</h3>${progress}` + cls.abilities.map((a) => {
     const bits = [a.channel ? `${a.castTime}s channel` : a.castTime ? `${a.castTime}s cast` : "Instant"];
     if (a.cost) bits.push(`${a.cost} ${cls.resource.name.toLowerCase()}`);
     if (a.cd) bits.push(`${a.cd}s cd`);
