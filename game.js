@@ -138,7 +138,7 @@ const CLASSES = {
         minRange: 8,
         school: "physical",
         target: "enemy",
-        blurb: "Rush an enemy 8–25 yards away, stunning them for 1.5 sec and generating 20 Rage. Clears your roots. Off the global cooldown.",
+        blurb: "Rush an enemy 8–25 yards away, stunning them for 1.5 sec and generating 20 Rage. That stun has its own diminishing returns. Clears your roots. Off the global cooldown.",
         effect(source, target) {
           const ang = Math.atan2(target.y - source.y, target.x - source.x);
           source.dash = {
@@ -282,7 +282,7 @@ const CLASSES = {
           const spot = { x: source.x + dx, y: source.y + dy };
           const travel = clamp(d / 26, 0.28, 0.85);
           const aimFeet = source.aimPoint && typeof source.aimPoint.h === "number" ? source.aimPoint.h : source.height;
-          const floor1 = standSurface(spot.x, spot.y, aimFeet + 0.5);
+          const floor1 = supportAt(spot.x, spot.y, aimFeet + 0.5);
           source.dash = {
             x: spot.x,
             y: spot.y,
@@ -335,7 +335,7 @@ const CLASSES = {
         school: "physical",
         target: "aoe",
         radius: 8,
-        blurb: "Stuns enemies within 8 yards for 2 sec. Shares stun diminishing returns with Rush and Blindside.",
+        blurb: "Stuns enemies within 8 yards for 2 sec. Shares stun diminishing returns with Blindside.",
         extra(source) {
           const radius = this.radius || 8;
           const hits = unitsInRadius(source, radius, (u) => u.team !== source.team && u.hp > 0 && !isHidden(u) && hasLoS(source, u));
@@ -1733,7 +1733,7 @@ const CLASSES = {
         range: 5,
         school: "physical",
         target: "enemy",
-        blurb: "Only from the veil. Stuns for 4 sec. Stun diminishing returns — shared with Rush. Breaks the veil.",
+        blurb: "Only from the veil. Stuns for 4 sec. Stun diminishing returns — shared with Quake. Breaks the veil.",
         extra(source) {
           if (!isVeiled(source)) return "Must be veiled";
           return null;
@@ -2266,7 +2266,7 @@ const CLASSES = {
         range: 30,
         school: "physical",
         target: "enemy",
-        blurb: "Pulls an enemy to you from up to 30 yards and clears their roots. At 3 chain stacks, also stuns them for 1.5 sec. Shares stun diminishing returns with Rush and Blindside.",
+        blurb: "Pulls an enemy to you from up to 30 yards and clears their roots. At 3 chain stacks, also stuns them for 1.5 sec. Shares stun diminishing returns with Blindside.",
         effect(source, target) {
           if (immune(target)) {
             floater(target, "Immune", "#ddd");
@@ -2806,7 +2806,7 @@ const CLASSES = {
         range: 5,
         school: "physical",
         target: "enemy",
-        blurb: "If your mark hit you in the last 3 sec, stuns them for 1.5 sec. Otherwise a normal hit. Shares stun diminishing returns with Rush and Blindside. Builds Momentum on your mark.",
+        blurb: "If your mark hit you in the last 3 sec, stuns them for 1.5 sec. Otherwise a normal hit. Shares stun diminishing returns with Blindside. Builds Momentum on your mark.",
         effect(source, target) {
           const marked = isDuelMark(source, target);
           const answered = marked && source.lastHitId === target.id && match.time - (source.lastHitTime || 0) <= 3;
@@ -3126,7 +3126,7 @@ const TALENTS = {
         const spell = spellOf(unit, "charge");
         spell.minRange = 5;
         spell.cd = 12;
-        spell.blurb = "Rush an enemy 5–25 yards away, stunning them for 1.5 sec and generating 20 Rage. Clears your roots. Off the global cooldown.";
+        spell.blurb = "Rush an enemy 5–25 yards away, stunning them for 1.5 sec and generating 20 Rage. That stun has its own diminishing returns. Clears your roots. Off the global cooldown.";
       }),
       opt("vaultReady", "Second Vault", "Vault's cooldown is 22 sec and it reaches 48 yards.", (unit) => {
         const spell = spellOf(unit, "heroicLeap");
@@ -3170,7 +3170,7 @@ const TALENTS = {
       opt("wideQuake", "Wide Quake", "Quake reaches enemies within 11 yards.", (unit) => {
         const spell = spellOf(unit, "quake");
         spell.radius = 11;
-        spell.blurb = "Stuns enemies within 11 yards for 2 sec. Shares stun diminishing returns with Rush and Blindside.";
+        spell.blurb = "Stuns enemies within 11 yards for 2 sec. Shares stun diminishing returns with Blindside.";
       }),
     ]),
     row("defense", "Defense", [
@@ -3193,7 +3193,7 @@ const TALENTS = {
       opt("quakeLock", "Aftershock", "Quake stuns for 3 sec.", (unit) => {
         const spell = spellOf(unit, "quake");
         spell.stunTime = 3;
-        spell.blurb = `Stuns enemies within ${spell.radius || 8} yards for 3 sec. Shares stun diminishing returns with Rush and Blindside.`;
+        spell.blurb = `Stuns enemies within ${spell.radius || 8} yards for 3 sec. Shares stun diminishing returns with Blindside.`;
       }),
       opt("heavyHands", "Battle Rhythm", "Auto attacks generate 18 Rage.", (unit) => { unit.rageOnSwing = 18; }),
     ]),
@@ -4846,6 +4846,25 @@ function rampTop(ramp, x, y) {
   return ramp.top * clamp(u, 0, 1);
 }
 
+function rampFloor(x, y) {
+  let top = null;
+  for (const ramp of activeMap().ramps || []) {
+    const h = rampTop(ramp, x, y);
+    if (h == null) continue;
+    top = top == null ? h : Math.max(top, h);
+  }
+  return top;
+}
+
+// The slope is solid. A unit inside its footprint stands on it instead of falling into it.
+function supportAt(x, y, feet) {
+  const surface = standSurface(x, y, feet);
+  const ramp = rampFloor(x, y);
+  if (ramp == null) return surface;
+  if (surface == null) return ramp;
+  return Math.max(surface, ramp);
+}
+
 function standSurface(x, y, feet) {
   const map = activeMap();
   let surface = 0;
@@ -5783,7 +5802,7 @@ function blinkMove(unit, dx, dy, distance) {
     unit.y = ny;
     left -= hop;
   }
-  const surface = standSurface(unit.x, unit.y, unit.height);
+  const surface = supportAt(unit.x, unit.y, unit.height);
   if (surface != null && unit.height < surface) unit.height = surface;
   unit.facing = Math.atan2(dy, dx);
   unit.vx = 0;
@@ -5822,7 +5841,7 @@ function projectAim(unit, x, y, range, minRange, checkLos, h) {
   const scale = d > range ? range / d : 1;
   const px = unit.x + dx * scale;
   const py = unit.y + dy * scale;
-  const surface = standSurface(px, py, (h == null ? unit.height : h) + 0.4);
+  const surface = supportAt(px, py, (h == null ? unit.height : h) + 0.4);
   const point = { x: px, y: py, h: surface == null ? 0 : surface };
   const landed = Math.hypot(px - unit.x, py - unit.y);
   if (minRange && landed < minRange - 0.05) return { ...point, ok: false, reason: "Too close" };
@@ -5923,7 +5942,7 @@ function makeUnit(classId, team, x, y, opts) {
     aiTimer: 0.4 + Math.random() * 0.4,
     fearAng: 0,
     fearTurn: 0,
-    dr: { stun: null, incap: null, fear: null, root: null },
+    dr: { stun: null, rush: null, incap: null, fear: null, root: null },
     stats: { damage: 0, healing: 0 },
     dead: false,
     remote: null,
@@ -6125,11 +6144,16 @@ function tickUnitTimers(unit, dt) {
   tickCharges(unit, dt);
 }
 
+function crowdHoldsSwing(target) {
+  return target.auras.some((aura) => aura.control === "fear" || aura.id === "polymorph");
+}
+
 function tickSwing(unit, dt) {
   if (unit.dummy || unit.hp <= 0 || unit.cast || unit.dash || hardLocked(unit) || isFeigning(unit) || isVeiled(unit)) return;
   const auto = CLASSES[unit.classId].auto;
   const target = unitById(unit.targetId);
   if (!target || target.hp <= 0 || target.team === unit.team || isHidden(target)) return;
+  if (unit.human && crowdHoldsSwing(target)) return;
   const d = dist(unit, target);
   if (d > auto.range || d < auto.minRange || !hasLoS(unit, target)) return;
   unit.swing -= dt;
@@ -6185,8 +6209,8 @@ function tickDash(unit, dt) {
     unit.dash = null;
     if (dash.leap) unit.height = dash.floor1 || 0;
     else {
-      const surface = standSurface(unit.x, unit.y, unit.height + 0.4);
-      if (surface != null && unit.height <= surface + 1.2) unit.height = surface;
+      const surface = supportAt(unit.x, unit.y, unit.height + 0.4);
+      if (surface != null && unit.height < surface) unit.height = surface;
     }
     unit.vz = 0;
     unit.vx = 0;
@@ -6235,7 +6259,7 @@ function tickDash(unit, dt) {
         name: "Rush",
         short: "Stun",
         control: "stun",
-        dr: "stun",
+        dr: "rush",
         duration: 1.5,
         dispellable: false,
       });
@@ -6858,8 +6882,8 @@ function updateMovement(dt) {
     if (unit.hp <= 0) continue;
     if (unit.dash) {
       if (!unit.dash.leap) {
-        const surface = standSurface(unit.x, unit.y, unit.height + 0.4);
-        if (surface != null && unit.height <= surface + 1.2) unit.height = surface;
+        const surface = supportAt(unit.x, unit.y, unit.height + 0.4);
+        if (surface != null && unit.height < surface) unit.height = surface;
         unit.vz = 0;
       }
       unit.vx = 0;
@@ -6927,7 +6951,9 @@ function updateMovement(dt) {
 
     slide(unit, unit.vx * dt, unit.vy * dt);
     const landed = standSurface(unit.x, unit.y, unit.height);
-    const rest = landed == null ? 0 : landed;
+    const ramp = rampFloor(unit.x, unit.y);
+    let rest = landed == null ? 0 : landed;
+    if (ramp != null && rest < ramp) rest = ramp;
     unit.vz -= TUNE.gravity * dt;
     unit.height += unit.vz * dt;
     if (unit.height <= rest) {
