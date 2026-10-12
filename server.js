@@ -33,6 +33,7 @@ const parties = new Map();
 const queues = { 1: [], 2: [], 3: [] };
 const live = new Map();
 const CLASS_IDS = new Set(["warrior", "mage", "hunter", "priest", "warlock", "druid", "rogue", "warden", "binder", "vow", "duelist"]);
+const HEALER_IDS = new Set(["priest", "druid", "warden", "vow"]);
 let nextId = 1;
 let nextMatch = 1;
 let simScript = null;
@@ -77,6 +78,19 @@ function bootArena() {
   vm.createContext(sandbox);
   arenaScript().runInContext(sandbox);
   return sandbox.Arena;
+}
+
+function rollBotClasses(count) {
+  const classes = [...CLASS_IDS];
+  const picked = [];
+  let healers = 0;
+  for (let i = 0; i < count; i++) {
+    const pool = healers >= 1 ? classes.filter((id) => !HEALER_IDS.has(id)) : classes;
+    const id = pool[Math.floor(Math.random() * pool.length)];
+    if (HEALER_IDS.has(id)) healers += 1;
+    picked.push(id);
+  }
+  return picked;
 }
 
 function laneYs(size) {
@@ -430,7 +444,7 @@ function onText(member, text) {
     if (queued) publishQueue(queued);
     named(member, msg);
     for (const human of humans) dropLive(human);
-    const classes = [...CLASS_IDS];
+    const classes = rollBotClasses(size);
     const ys = laneYs(size);
     const roster = humans.map((human, i) => ({
       id: i + 1,
@@ -447,7 +461,7 @@ function onText(member, text) {
     for (let i = 0; i < size; i++) {
       roster.push({
         id: size + i + 1,
-        classId: classes[Math.floor(Math.random() * classes.length)],
+        classId: classes[i],
         team: "enemy",
         x: 82,
         y: ys[i],

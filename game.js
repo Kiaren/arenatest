@@ -243,6 +243,7 @@ const CLASSES = {
         cd: 10,
         castTime: 0,
         gcd: false,
+        interrupts: true,
         range: 5,
         school: "physical",
         target: "enemy",
@@ -480,6 +481,7 @@ const CLASSES = {
         cd: 16,
         castTime: 0,
         gcd: false,
+        interrupts: true,
         range: 30,
         school: "magic",
         target: "enemy",
@@ -658,11 +660,11 @@ const CLASSES = {
     name: "Ranger",
     color: CLASS_COLORS.hunter,
     role: "Ranged physical",
-    blurb: "A dead zone inside 8 yards. Longshot can be kicked. Traps share incapacitate DR with Figment.",
+    blurb: "Longshot cuts healing received by 50% for 8 sec and cannot be interrupted. Traps share incapacitate DR with Figment.",
     hp: 2700,
     speed: 12.2,
     melee: false,
-    auto: { damage: 68, interval: 2.0, range: 35, minRange: 8 },
+    auto: { damage: 68, interval: 2.0, range: 35, minRange: 0 },
     resource: { id: "focus", name: "Focus", color: "#e09a3e", start: 100, max: 100, regen: 8 },
     abilities: [
       spell({
@@ -674,15 +676,20 @@ const CLASSES = {
         castTime: 2.1,
         moveCast: true,
         range: 35,
-        minRange: 8,
-        school: "magic",
+        school: "physical",
         target: "enemy",
-        reflectable: true,
-        harmful: true,
-        blurb: "2.1 sec aimed shot you can cast while moving. Heavy damage. Treated as interruptible magic so kicks matter. Cannot be used inside 8 yards.",
+        unkickable: true,
+        blurb: "2.1 sec aimed shot you can cast while moving. Heavy damage and cuts healing received by 50% for 8 sec. Cannot be interrupted. Works at any range.",
         effect(source, target) {
-          if (tryReflect(source, target, this)) return;
-          dealDamage(source, target, 270, { direct: true, school: "physical", name: "Longshot" });
+          const n = dealDamage(source, target, 270, { direct: true, school: "physical", name: "Longshot" });
+          if (n > 0) addAura(target, {
+            id: "mortalWounds",
+            name: "Sundered",
+            short: "MW",
+            type: "debuff",
+            remaining: 8,
+            healReduce: 0.5,
+          });
         },
       }),
       spell({
@@ -693,10 +700,9 @@ const CLASSES = {
         cd: 6,
         castTime: 0,
         range: 35,
-        minRange: 8,
         school: "physical",
         target: "enemy",
-        blurb: "Instant shot that slows by 50% for 5 sec. Physical slow. Dead zone inside 8 yards.",
+        blurb: "Instant shot that slows by 50% for 5 sec. Physical slow. Works at any range.",
         effect(source, target) {
           dealDamage(source, target, 36, { direct: true, school: "physical", name: "Dazing Shot" });
           addAura(target, {
@@ -739,26 +745,24 @@ const CLASSES = {
         },
       }),
       spell({
-        id: "wingClip",
-        name: "Ankle Cut",
-        short: "Ankle",
-        cost: 15,
-        cd: 0,
-        castTime: 0,
-        range: 5,
+        id: "rapidFire",
+        name: "Arrow Barrage",
+        short: "Barrage",
+        cost: 0,
+        cd: 16,
+        castTime: 2,
+        moveCast: true,
+        channel: true,
+        pulses: 7,
+        range: 35,
         school: "physical",
         target: "enemy",
-        blurb: "Melee range. Damage and a 50% physical slow for 6 sec. Your answer inside the dead zone.",
+        unkickable: true,
+        blurb: "2 sec channel you can cast while moving. Seven shots. Each shot deals damage and restores 4 Focus. Cannot be interrupted. Works at any range.",
         effect(source, target) {
-          dealDamage(source, target, 55, { direct: true, school: "physical", name: "Ankle Cut" });
-          addAura(target, {
-            id: "wingClip",
-            name: "Ankle Cut",
-            short: "Sn",
-            type: "debuff",
-            remaining: 6,
-            slow: 0.5,
-          });
+          dealDamage(source, target, 38, { direct: true, school: "physical", name: "Arrow Barrage", log: false });
+          const max = CLASSES.hunter.resource.max;
+          source.resource = Math.min(max, source.resource + 4);
         },
       }),
       spell({
@@ -813,27 +817,23 @@ const CLASSES = {
         },
       }),
       spell({
-        id: "pin",
-        name: "Pin",
-        short: "Pin",
-        cost: 20,
-        cd: 18,
-        castTime: 0,
+        id: "focusShot",
+        name: "Focus Shot",
+        short: "Focus",
+        cost: 0,
+        cd: 0,
+        castTime: 1.5,
+        moveCast: true,
         range: 35,
-        minRange: 8,
         school: "physical",
         target: "enemy",
-        blurb: "A pinning shot roots the target for up to 3 sec. Root diminishing returns. Physical, so it cannot be dispelled. No effect inside 8 yards.",
+        unkickable: true,
+        blurb: "1.5 sec shot you can cast while moving. Light damage and restores 30 Focus. Cannot be interrupted. Works at any range.",
         effect(source, target) {
-          applyControl(source, target, {
-            id: "pin",
-            name: "Pin",
-            short: "Root",
-            control: "root",
-            dr: "root",
-            duration: 3,
-            dispellable: false,
-          });
+          dealDamage(source, target, 60, { direct: true, school: "physical", name: "Focus Shot" });
+          const max = CLASSES.hunter.resource.max;
+          source.resource = Math.min(max, source.resource + 30);
+          floater(source, "+30 Focus", "#e09a3e");
         },
       }),
       spell({
@@ -844,10 +844,9 @@ const CLASSES = {
         cd: 10,
         castTime: 0,
         range: 35,
-        minRange: 8,
         school: "physical",
         target: "enemy",
-        blurb: "A heavy shot, only against a target at or below 20% health. No effect inside 8 yards.",
+        blurb: "A heavy shot, only against a target at or below 20% health. Works at any range.",
         extra(_source, target) {
           if (!target || target.hp / target.hpMax > 0.2) return "Target above 20%";
           return null;
@@ -1052,14 +1051,14 @@ const CLASSES = {
         name: "Thought Spike",
         short: "Spike",
         cost: 16,
-        cd: 8,
+        cd: 0,
         castTime: 1.5,
         range: 30,
         school: "magic",
         target: "enemy",
         reflectable: true,
         harmful: true,
-        blurb: "1.5 sec cast. Solid shadow damage when nobody needs a heal.",
+        blurb: "1.5 sec cast. No cooldown. Solid shadow damage when nobody needs a heal.",
         effect(source, target) {
           if (tryReflect(source, target, this)) return;
           dealDamage(source, target, 175, { direct: true, school: "magic", name: "Thought Spike" });
@@ -1319,6 +1318,7 @@ const CLASSES = {
         cd: 16,
         castTime: 0,
         gcd: false,
+        interrupts: true,
         range: 30,
         school: "magic",
         target: "enemy",
@@ -1759,6 +1759,7 @@ const CLASSES = {
         cd: 10,
         castTime: 0,
         gcd: false,
+        interrupts: true,
         range: 5,
         school: "physical",
         target: "enemy",
@@ -2326,6 +2327,7 @@ const CLASSES = {
         cd: 16,
         castTime: 0,
         gcd: false,
+        interrupts: true,
         range: 30,
         school: "magic",
         target: "enemy",
@@ -2882,6 +2884,7 @@ const CLASSES = {
         cd: 10,
         castTime: 0,
         gcd: false,
+        interrupts: true,
         range: 5,
         school: "physical",
         target: "enemy",
@@ -3335,17 +3338,17 @@ const TALENTS = {
         const spell = spellOf(unit, "aimedShot");
         spell.instantOnSlow = true;
         spell.instantOnRoot = true;
-        spell.blurb = "2.1 sec cast while moving, instant if the target is slowed or rooted. Heavy damage.";
+        spell.blurb = "2.1 sec cast while moving, instant if the target is slowed or rooted. Heavy damage and cuts healing received by 50% for 8 sec. Cannot be interrupted.";
       }),
       opt("twinDaze", "Twin Daze", "Dazing Shot has 2 charges.", (unit) => {
         const spell = spellOf(unit, "concussiveShot");
         giveCharges(spell, 2, 6);
-        spell.blurb = "Two charges. Instant shot that slows by 50% for 5 sec. Each charge returns after 6 sec. Dead zone inside 8 yards.";
+        spell.blurb = "Two charges. Instant shot that slows by 50% for 5 sec. Each charge returns after 6 sec. Works at any range.";
       }),
       opt("openFinish", "Any Finish", "Finish Shot can be used at any health.", (unit) => {
         const spell = spellOf(unit, "finishShot");
         spell.extra = function () { return null; };
-        spell.blurb = "Instant heavy shot. Usable at any health. Dead zone inside 8 yards.";
+        spell.blurb = "Instant heavy shot. Usable at any health and at any range.";
       }),
     ]),
     row("movement", "Movement", [
@@ -3366,10 +3369,8 @@ const TALENTS = {
       opt("clearBack", "Slip Away", "Backstep also clears slows.", (unit) => {
         retouch(spellOf(unit, "disengage"), (source) => clearSlows(source));
       }),
-      opt("closePin", "Point Blank", "Pin can be used inside the dead zone.", (unit) => {
-        const spell = spellOf(unit, "pin");
-        spell.minRange = 0;
-        spell.blurb = "A pinning shot roots the target for up to 3 sec. Root diminishing returns. Physical, so it cannot be dispelled. Works at any range up to 35 yards.";
+      opt("closePin", "Focus Step", "Focus Shot also grants 40% movement speed for 3 sec.", (unit) => {
+        retouch(spellOf(unit, "focusShot"), (source) => grantSpeed(source, 3, 0.4));
       }),
     ]),
     row("utility", "Utility", [
@@ -3382,13 +3383,13 @@ const TALENTS = {
           if (primed) pressControl(source, target, "quietRoot", "Quiet Shot", "root");
         };
       }),
-      opt("longPin", "Pin Down", "Pinning a target who is already rooted stuns them for 2 sec. 15 sec cooldown per target.", (unit) => {
-        const spell = spellOf(unit, "pin");
+      opt("longPin", "Focus Root", "Focus Shot roots a target who is already slowed for 2 sec. 15 sec cooldown per target.", (unit) => {
+        const spell = spellOf(unit, "focusShot");
         const prev = spell.effect;
         spell.effect = function (source, target) {
-          const primed = hasRoot(target);
+          const primed = hasSlow(target);
           prev.call(this, source, target);
-          if (primed) pressControl(source, target, "pinStun", "Pin", "stun");
+          if (primed) pressControl(source, target, "focusRoot", "Focus Shot", "root");
         };
       }),
       opt("readyTrap", "Gag Trap", "Your Snare Trap also silences the victim for 3 sec.", (unit) => {
@@ -3420,17 +3421,13 @@ const TALENTS = {
           if (primed) pressControl(source, target, "dazeStun", "Dazing Shot", "stun");
         };
       }),
-      opt("ankleLong", "Hobble Cut", "Ankle Cutting a target who is already cut roots them for 2 sec. 15 sec cooldown per target.", (unit) => {
-        const spell = spellOf(unit, "wingClip");
-        const prev = spell.effect;
-        spell.effect = function (source, target) {
-          const already = !!(target && target.auras.some((a) => a.id === "wingClip"));
-          prev.call(this, source, target);
-          if (already) pressControl(source, target, "ankleRoot", "Ankle Cut", "root");
-        };
+      opt("ankleLong", "Quick Draw", "Arrow Barrage fires 10 shots instead of 7.", (unit) => {
+        const spell = spellOf(unit, "rapidFire");
+        spell.pulses = 10;
+        spell.blurb = "2 sec channel you can cast while moving. Ten shots. Each shot deals damage and restores 4 Focus. Cannot be interrupted. Works at any range.";
       }),
-      opt("finishReady", "Follow Through", "Finish Shot resets Pin.", (unit) => {
-        retouch(spellOf(unit, "finishShot"), (source) => { source.cd.pin = 0; });
+      opt("finishReady", "Follow Through", "Finish Shot resets Arrow Barrage.", (unit) => {
+        retouch(spellOf(unit, "finishShot"), (source) => { source.cd.rapidFire = 0; });
       }),
     ]),
   ],
@@ -3450,11 +3447,16 @@ const TALENTS = {
           if (already && target && procReady(source, "acheSilence", target.id, 15)) silenceUnit(source, target, 2);
         };
       }),
-      opt("spikeCharges", "Banked Spike", "Thought Spike has 2 charges. Aegis restores one.", (unit) => {
+      opt("spikeCharges", "Banked Spike", "Aegis makes your next Thought Spike instant.", (unit) => {
         const spike = spellOf(unit, "mindBlast");
-        giveCharges(spike, 2, 8);
-        spike.blurb = "Two charges. Aegis restores one charge.";
-        retouch(spellOf(unit, "powerWordShield"), (source) => refundCharge(source, "mindBlast"));
+        spike.instantWhen = (source) => !!source.bankedSpike;
+        spike.blurb = "1.5 sec cast. No cooldown. Instant after Aegis. Solid shadow damage when nobody needs a heal.";
+        const prev = spike.effect;
+        spike.effect = function (source, target) {
+          source.bankedSpike = false;
+          prev.call(this, source, target);
+        };
+        retouch(spellOf(unit, "powerWordShield"), (source) => { source.bankedSpike = true; });
       }),
     ]),
     row("movement", "Movement", [
@@ -4489,9 +4491,17 @@ function setTalent(nodeIndex, choiceId) {
 const BIND_CODES = {
   Digit1: "1", Digit2: "2", Digit3: "3", Digit4: "4", Digit5: "5", Digit6: "6",
   Numpad1: "1", Numpad2: "2", Numpad3: "3", Numpad4: "4", Numpad5: "5", Numpad6: "6",
+  KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d", Space: "space",
   KeyQ: "q", KeyE: "e", KeyR: "r", KeyT: "t", KeyF: "f", KeyG: "g",
   KeyZ: "z", KeyX: "x", KeyC: "c", KeyV: "v", KeyB: "b", KeyY: "y", KeyH: "h",
 };
+const MOVE_ACTIONS = [
+  { id: "move:forward", name: "Move forward", code: "KeyW" },
+  { id: "move:back", name: "Move back", code: "KeyS" },
+  { id: "move:left", name: "Strafe left", code: "KeyA" },
+  { id: "move:right", name: "Strafe right", code: "KeyD" },
+  { id: "move:jump", name: "Jump", code: "Space" },
+];
 const TARGET_ACTIONS = [
   { id: "target:next", name: "Next enemy", code: "Tab" },
   { id: "target:prev", name: "Previous enemy", code: "" },
@@ -4505,6 +4515,7 @@ const TARGET_ACTIONS = [
 ];
 const LETTER_CODES = {
   "1": "Digit1", "2": "Digit2", "3": "Digit3", "4": "Digit4", "5": "Digit5", "6": "Digit6",
+  w: "KeyW", a: "KeyA", s: "KeyS", d: "KeyD", space: "Space",
   q: "KeyQ", e: "KeyE", r: "KeyR", t: "KeyT", f: "KeyF", g: "KeyG",
   z: "KeyZ", x: "KeyX", c: "KeyC", v: "KeyV", b: "KeyB", y: "KeyY", h: "KeyH",
 };
@@ -4535,6 +4546,21 @@ function targetCode(id) {
   return action ? action.code : "";
 }
 
+function moveCode(id) {
+  if (Object.prototype.hasOwnProperty.call(binds, id)) return binds[id] || "";
+  const action = MOVE_ACTIONS.find((a) => a.id === id);
+  return action ? action.code : "";
+}
+
+function movementCodes() {
+  const codes = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+  for (const action of MOVE_ACTIONS) {
+    const code = moveCode(action.id);
+    if (code) codes.add(code);
+  }
+  return codes;
+}
+
 function isMouseBind(token) {
   return typeof token === "string" && (token.startsWith("Mouse") || token.startsWith("Wheel"));
 }
@@ -4554,7 +4580,10 @@ function codeFromSpellToken(token) {
 function codeLabel(code) {
   if (!code) return "—";
   if (MOUSE_LABELS[code]) return MOUSE_LABELS[code][0];
+  if (code === "Space") return "Space";
   if (BIND_CODES[code]) return BIND_CODES[code].toUpperCase();
+  if (code.startsWith("Arrow")) return code.slice(5);
+  if (code.startsWith("Key") && code.length === 4) return code.slice(3);
   return code;
 }
 
@@ -4566,10 +4595,13 @@ function bindLabel(ability, compact) {
 
 function bindPrompt(picked) {
   if (bindNote) return bindNote;
-  if (!rebinding) return "Click a row, then press a key, a mouse button, or the scroll wheel. Saved in this browser.";
+  if (!rebinding) return "Click a row, then press a key, a mouse button, or the scroll wheel. Movement uses a keyboard key. Saved in this browser.";
+  const move = MOVE_ACTIONS.find((a) => a.id === rebinding);
   const target = TARGET_ACTIONS.find((a) => a.id === rebinding);
   const spell = picked.abilities.find((a) => a.id === rebinding);
-  return `Press a key, a mouse button, or the scroll wheel for ${target ? target.name : spell.name}.`;
+  const name = move ? move.name : target ? target.name : spell.name;
+  if (move) return `Press a keyboard key for ${name}.`;
+  return `Press a key, a mouse button, or the scroll wheel for ${name}.`;
 }
 
 function saveBinds() {
@@ -4611,9 +4643,38 @@ function setTargetBind(id, code) {
   saveBinds();
 }
 
+function setMoveBind(id, code) {
+  const previous = moveCode(id);
+  const other = MOVE_ACTIONS.find((action) => action.id !== id && moveCode(action.id) === code);
+  if (other) binds[other.id] = previous;
+  binds[id] = code;
+  const letter = spellTokenFromCode(code);
+  if (letter) {
+    const taken = CLASSES[setup.player].abilities.find((ability) => bindFor(ability) === letter);
+    if (taken) {
+      const blocked = new Set();
+      for (const action of MOVE_ACTIONS) {
+        const token = spellTokenFromCode(moveCode(action.id));
+        if (token) blocked.add(token);
+      }
+      const prevLetter = spellTokenFromCode(previous);
+      const used = new Set(CLASSES[setup.player].abilities.filter((ability) => ability !== taken).map((ability) => bindFor(ability)));
+      if (prevLetter && !used.has(prevLetter) && !blocked.has(prevLetter)) binds[taken.id] = prevLetter;
+      else {
+        const next = Object.values(LETTER_CODES).map((physical) => BIND_CODES[physical]).find((key) => key && !used.has(key) && !blocked.has(key));
+        if (next) binds[taken.id] = next;
+      }
+    }
+  }
+  const otherTarget = TARGET_ACTIONS.find((action) => targetCode(action.id) === code);
+  if (otherTarget) binds[otherTarget.id] = "";
+  saveBinds();
+}
+
 function resetBinds() {
   for (const ability of CLASSES[setup.player].abilities) delete binds[ability.id];
   for (const action of TARGET_ACTIONS) delete binds[action.id];
+  for (const action of MOVE_ACTIONS) delete binds[action.id];
   rebinding = null;
   bindNote = "Keys reset.";
   saveBinds();
@@ -5016,7 +5077,8 @@ const SPELL_LOOK = {
   brace: { kind: "burst", color: "#e7c98a", life: 0.45, size: 1.4, style: "shield" },
   quake: { kind: "ring", color: "#e7c98a", life: 0.55, size: 8, style: "steel" },
   emberWard: { kind: "burst", color: "#ff7a3c", life: 0.5, size: 1.45, style: "fire" },
-  pin: { kind: "bolt", color: "#d9cbb0", life: 0.4, size: 1.05, style: "arrow" },
+  rapidFire: { kind: "bolt", color: "#e6d3a8", life: 0.22, size: 0.9, style: "arrow" },
+  focusShot: { kind: "bolt", color: "#e09a3e", life: 0.4, size: 1.05, style: "arrow" },
   finishShot: { kind: "bolt", color: "#ffb089", life: 0.42, size: 1.2, style: "arrow" },
   blessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.35, style: "holy" },
   speedBlessing: { kind: "burst", color: "#f7f4ff", life: 0.48, size: 1.4, style: "holy" },
@@ -5048,7 +5110,6 @@ const SPELL_LOOK = {
   aimedShot: { kind: "bolt", color: "#f0e2b8", life: 0.42, size: 1.15, style: "arrow" },
   concussiveShot: { kind: "bolt", color: "#d9cbb0", life: 0.48, size: 1.05, style: "arrow" },
   freezingTrap: { kind: "ring", color: "#9eecff", life: 0.55, size: 3.4, style: "frost" },
-  wingClip: { kind: "slash", color: "#c4b48a", life: 0.36, size: 0.95, style: "blade" },
   silencingShot: { kind: "bolt", color: "#b9a6e0", life: 0.4, size: 1.05, style: "arrow" },
   disengage: { kind: "trail", color: "#e6d3b0", life: 0.42, style: "dust" },
   feignDeath: { kind: "burst", color: "#8a847c", life: 0.5, size: 1.4, style: "smoke" },
@@ -5524,7 +5585,7 @@ function tryReflect(source, target, ability) {
 }
 
 function interruptUnit(source, target, lockFor) {
-  if (!target.cast) return false;
+  if (!target.cast || target.cast.ability.unkickable) return false;
   const spellName = target.cast.ability.name;
   cancelCast(target, true);
   target.lockout = lockFor;
@@ -5534,7 +5595,7 @@ function interruptUnit(source, target, lockFor) {
 }
 
 function silenceUnit(source, target, seconds) {
-  const wasCasting = !!target.cast;
+  const wasCasting = !!target.cast && !target.cast.ability.unkickable;
   const spellName = target.cast?.ability.name;
   if (wasCasting) cancelCast(target, true);
   target.silence = Math.max(target.silence, seconds);
@@ -5596,7 +5657,7 @@ function unitsInRadius(origin, radius, pred) {
 }
 
 function isLocked(unit, ability) {
-  if (ability.ignoreLock) return false;
+  if (ability.ignoreLock || ability.unkickable) return false;
   if (ability.school === "magic" && (unit.silence > 0 || unit.lockout > 0)) return true;
   if (ability.castTime > 0 && unit.lockout > 0) return true;
   return false;
@@ -5632,6 +5693,7 @@ function validate(unit, ability, target) {
     if (ability.range && d > ability.range) return "Out of range";
     if (!hasLoS(unit, target)) return "Line of sight";
   }
+  if (ability.interrupts && target?.cast?.ability?.unkickable) return "Can't interrupt";
   if (ability.extra) {
     const reason = ability.extra(unit, target);
     if (reason) return reason;
@@ -6390,7 +6452,7 @@ function interruptPlan(cast) {
 
 function tryKick(unit, abilityId, range, minRange) {
   for (const foe of foesOf(unit)) {
-    if (!foe.cast || isHidden(foe) || immune(foe)) continue;
+    if (!foe.cast || foe.cast.ability.unkickable || isHidden(foe) || immune(foe)) continue;
     const gap = dist(unit, foe);
     if (gap > range || (minRange && gap < minRange) || !hasLoS(unit, foe)) continue;
     const plan = interruptPlan(foe.cast);
@@ -6549,12 +6611,12 @@ function aiRanger(unit) {
     tryCast(unit, "freezingTrap");
     unit.aimPoint = null;
   }
-  if (kill && !unit.cast) {
-    if (dist(unit, kill) <= 5) tryCast(unit, "wingClip", kill);
-    if (dist(unit, kill) >= 8) tryCast(unit, "pin", kill);
-    if (kill.hp / kill.hpMax <= 0.2 && dist(unit, kill) >= 8) tryCast(unit, "finishShot", kill);
-    if (near && !near.auras.some((a) => a.slow) && dist(unit, near) >= 8) tryCast(unit, "concussiveShot", near);
-    if (!near || dist(unit, near) > 10) tryCast(unit, "aimedShot", kill);
+  if (kill && !unit.cast && dist(unit, kill) <= 35 && hasLoS(unit, kill)) {
+    if (unit.resource < 35) tryCast(unit, "focusShot", kill);
+    if (!unit.cast) tryCast(unit, "rapidFire", kill);
+    if (!unit.cast && kill.hp / kill.hpMax <= 0.2) tryCast(unit, "finishShot", kill);
+    if (!unit.cast && near && !near.auras.some((a) => a.slow)) tryCast(unit, "concussiveShot", near);
+    if (!unit.cast) tryCast(unit, "aimedShot", kill);
   }
   const aimed = unit.cast && unit.cast.ability.moveCast;
   if (!unit.cast || aimed) wantRange(unit, near || kill, 12, 26);
@@ -7118,8 +7180,8 @@ const SPELL_GLYPH = {
   pummel: "interrupt", heroicLeap: "leap", brace: "guard", quake: "stun", spellReflection: "reflect",
   frostbolt: "ice", fireBlast: "fire", polymorph: "sheep", counterspell: "interrupt", blink: "blink",
   frostNova: "nova", scorch: "fire", pyroblast: "inferno", emberWard: "ward", iceBlock: "ice",
-  aimedShot: "shot", concussiveShot: "slow", freezingTrap: "trap", wingClip: "slow", silencingShot: "interrupt",
-  disengage: "back", feignDeath: "feign", pin: "root", finishShot: "shot", deterrence: "deflect",
+  aimedShot: "shot", concussiveShot: "slow", freezingTrap: "trap", rapidFire: "shot", silencingShot: "interrupt",
+  disengage: "back", feignDeath: "feign", focusShot: "shot", finishShot: "shot", deterrence: "deflect",
   flashHeal: "heal", powerWordShield: "shield", shadowWordPain: "pain", psychicScream: "fear",
   dispelMagic: "cleanse", mindBlast: "mind", penance: "channel", blessing: "bless", speedBlessing: "haste", desperatePrayer: "heal",
   shadowBolt: "shadow", corruption: "dot", agony: "dot", unstableAffliction: "curse", fear: "fear",
@@ -7756,6 +7818,24 @@ function fitTeams() {
   setup.enemies.length = setup.size;
 }
 
+function isHealerClass(id) {
+  const role = CLASSES[id] && CLASSES[id].role;
+  return typeof role === "string" && /healer/i.test(role);
+}
+
+function rollBotClasses(count, already) {
+  const ids = Object.keys(CLASSES);
+  const picked = [];
+  let healers = (already || []).filter((id) => isHealerClass(id)).length;
+  for (let i = 0; i < count; i++) {
+    const pool = healers >= 1 ? ids.filter((id) => !isHealerClass(id)) : ids.slice();
+    const id = pool[Math.floor(Math.random() * pool.length)];
+    if (isHealerClass(id)) healers += 1;
+    picked.push(id);
+  }
+  return picked;
+}
+
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -7788,12 +7868,20 @@ function iLeadParty() {
   return !!(party && window.ArenaNet && ArenaNet.id === party.leaderId);
 }
 
+function moveHeld(id, arrow) {
+  const code = moveCode(id);
+  if (code && keysDown.has(code)) return true;
+  if (!arrow || !keysDown.has(arrow)) return false;
+  const owner = MOVE_ACTIONS.find((action) => moveCode(action.id) === arrow);
+  return !owner || owner.id === id;
+}
+
 function localWish() {
   const yaw = window.ArenaView ? ArenaView.getYaw() : Math.PI;
   const viewX = -Math.cos(yaw);
   const viewZ = -Math.sin(yaw);
-  const forward = (keysDown.has("KeyW") || keysDown.has("ArrowUp") ? 1 : 0) - (keysDown.has("KeyS") || keysDown.has("ArrowDown") ? 1 : 0);
-  const strafe = (keysDown.has("KeyD") || keysDown.has("ArrowRight") ? 1 : 0) - (keysDown.has("KeyA") || keysDown.has("ArrowLeft") ? 1 : 0);
+  const forward = (moveHeld("move:forward", "ArrowUp") ? 1 : 0) - (moveHeld("move:back", "ArrowDown") ? 1 : 0);
+  const strafe = (moveHeld("move:right", "ArrowRight") ? 1 : 0) - (moveHeld("move:left", "ArrowLeft") ? 1 : 0);
   let wishX = 0;
   let wishY = 0;
   let moving = false;
@@ -8475,7 +8563,7 @@ function renderLobby() {
         <input id="player-name" maxlength="16" value="${esc(playerName)}" placeholder="Your name" />
         <input id="server-url" value="${esc(defaultServer())}" placeholder="ws://127.0.0.1:8780" />
       </div>
-      ${party ? `<p class="room-code">${esc(party.code)}</p>${roster}<p class="map-note">Share the code. Your party stays on the same team. Vs bots fills the other side with random classes.</p>` : `<p class="map-note">Queue alone, or make a party so friends stay together.</p>`}
+      ${party ? `<p class="room-code">${esc(party.code)}</p>${roster}<p class="map-note">Share the code. Your party stays on the same team. Vs bots fills the other side with random classes, and that side never has two healers.</p>` : `<p class="map-note">Queue alone, or make a party so friends stay together.</p>`}
       <div class="lobby-field">
         ${canQueue ? `<button class="start-btn" id="find-match" type="button">${queueLabel}</button>` : ""}
         ${iLeadParty() ? `<button class="text-btn" id="queue-bots" type="button">${party.members.length}v${party.members.length} vs bots</button>` : ""}
@@ -8564,6 +8652,10 @@ function renderLobby() {
           ${teams || `<p class="net-status">Pick a team size, then enter.</p>`}
           <div class="section-label">Keybinds</div>
           <p class="net-status">${esc(bindPrompt(picked))}</p>
+          <div class="section-label">Movement</div>
+          <div class="bind-grid">
+            ${MOVE_ACTIONS.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(codeLabel(moveCode(a.id)))}</b></button>`).join("")}
+          </div>
           <div class="section-label">Targeting</div>
           <div class="bind-grid">
             ${TARGET_ACTIONS.map((a) => `<button type="button" class="bind-row ${rebinding === a.id ? "selected" : ""}" data-bind="${a.id}"><span>${esc(a.name)}</span><b>${esc(codeLabel(targetCode(a.id)))}</b></button>`).join("")}
@@ -8657,10 +8749,9 @@ function renderLobby() {
   if ($("random")) {
     $("random").addEventListener("click", () => {
       const ids = Object.keys(CLASSES);
-      const roll = () => ids[Math.floor(Math.random() * ids.length)];
-      setup.player = roll();
-      setup.allies = setup.allies.map(roll);
-      setup.enemies = setup.enemies.map(roll);
+      setup.player = ids[Math.floor(Math.random() * ids.length)];
+      setup.allies = rollBotClasses(setup.allies.length, [setup.player]);
+      setup.enemies = rollBotClasses(setup.enemies.length);
       renderLobby();
     });
   }
@@ -8781,13 +8872,21 @@ function matchOpen() {
 }
 
 function finishRebind(code) {
-  const moving = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+  const moving = movementCodes();
   const targetKey = code === "Tab" || /^F([1-9]|1[0-2])$/.test(code);
   const mouse = isMouseBind(code);
   if (code === "Escape") {
     rebinding = null;
     bindNote = "";
-  } else if (moving.includes(code)) {
+  } else if (rebinding.startsWith("move:")) {
+    if (targetKey) bindNote = "Tab and the F keys are for targeting.";
+    else if (mouse) bindNote = "Use a keyboard key for movement.";
+    else {
+      setMoveBind(rebinding, code);
+      bindNote = "";
+      rebinding = null;
+    }
+  } else if (moving.has(code)) {
     bindNote = "That key is for moving or jumping.";
   } else if (rebinding.startsWith("target:") && (BIND_CODES[code] || targetKey || mouse)) {
     setTargetBind(rebinding, code);
@@ -8834,17 +8933,18 @@ function onKeyDown(e) {
   keysDown.add(e.code);
   if (!$("match") || $("match").classList.contains("hidden") || !match) return;
   const player = match.player;
-  if (["Space", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code) || /^F([1-9]|1[0-2])$/.test(e.code)) e.preventDefault();
+  if (e.code === "Space" || movementCodes().has(e.code) || e.code === "Tab" || /^F([1-9]|1[0-2])$/.test(e.code)) e.preventDefault();
   const targetAction = targetActionFor(e.code, e.shiftKey);
   if (targetAction) {
     doTargetAction(targetAction);
     return;
   }
-  if (e.code === "Space") {
+  if (e.code === moveCode("move:jump")) {
     if (match.netRole === "client") sendInput({ jump: true });
     else jumpUnit(player);
     return;
   }
+  if (movementCodes().has(e.code)) return;
   if (e.code === "Escape") {
     if (match.groundAim) match.groundAim = null;
     else if (match.netRole === "client") sendInput({ cancel: true });
@@ -8993,6 +9093,7 @@ window.Arena = {
   createMatch,
   normalizeTalents,
   rollTalents,
+  rollBotClasses,
   tryCast,
   step: update,
   pack: packMatch,
