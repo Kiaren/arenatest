@@ -8923,11 +8923,73 @@ function fireToken(token, shift) {
   return true;
 }
 
+const CHEAT_CODE = ["ArrowUp", "ArrowDown", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+let cheatIndex = 0;
+let cheatAt = 0;
+
+function xpForCap() {
+  let total = 0;
+  for (let level = 1; level < LEVEL_CAP; level++) total += xpToNext(level);
+  return total;
+}
+
+function grantChampionLevels() {
+  const total = xpForCap();
+  for (const id of Object.keys(CLASSES)) {
+    classXp[id] = Math.max(Number(classXp[id]) || 0, total);
+  }
+  try { localStorage.setItem("arenaLevels", JSON.stringify(classXp)); } catch (err) { /* ignore */ }
+  if (match && match.player) {
+    match.player.gearTier = 2;
+    floater(match.player, "Level 10", "#e2aa46");
+    combat("Every class is level 10.");
+  }
+  bindNote = "All classes are level 10.";
+  if (party && window.ArenaNet && ArenaNet.connected) ArenaNet.partyClass(setup.player, playerName, picksFor(setup.player));
+  if (room && window.ArenaNet && ArenaNet.id) {
+    const mine = room.slots.findIndex((slot) => slot.peerId === ArenaNet.id);
+    if (mine >= 0) {
+      if (iAmHost()) {
+        room.slots[mine].tier = 2;
+        broadcastLobby();
+      } else {
+        ArenaNet.send({ kind: "claim", slot: mine, classId: setup.player, name: playerName, tier: 2 });
+      }
+    }
+  }
+  if (!matchOpen()) renderLobby();
+}
+
+function noteCheat(code) {
+  if (!CHEAT_CODE.includes(code)) {
+    cheatIndex = 0;
+    return false;
+  }
+  const now = performance.now();
+  if (now - cheatAt > 2500) cheatIndex = 0;
+  cheatAt = now;
+  if (code !== CHEAT_CODE[cheatIndex]) {
+    cheatIndex = code === CHEAT_CODE[0] ? 1 : 0;
+    return false;
+  }
+  cheatIndex += 1;
+  if (cheatIndex < CHEAT_CODE.length) return false;
+  cheatIndex = 0;
+  grantChampionLevels();
+  return true;
+}
+
 function onKeyDown(e) {
   if (e.repeat) return;
+  const cheated = noteCheat(e.code);
   if (lobbyRebinding()) {
+    if (cheated) return;
     e.preventDefault();
     finishRebind(e.code);
+    return;
+  }
+  if (cheated && !matchOpen()) {
+    e.preventDefault();
     return;
   }
   keysDown.add(e.code);
