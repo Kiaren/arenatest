@@ -611,7 +611,7 @@ const CLASSES = {
         castTime: 0,
         school: "magic",
         target: "self",
-        blurb: "A fire shell absorbs damage for 8 sec. Magic, so it can be purged. Dampening reduces the absorb.",
+        blurb: "A fire shell absorbs damage for 8 sec. Magic, so it can be purged. Healing Reducing reduces the absorb.",
         effect(source) {
           const amount = Math.round(240 * (1 - currentDamp()));
           addAura(source, {
@@ -885,7 +885,7 @@ const CLASSES = {
     name: "Cleric",
     color: CLASS_COLORS.priest,
     role: "Healer",
-    blurb: "Keep your partner upright. Sundering Blow and dampening both cut your heals.",
+    blurb: "Keep your partner upright. Sundering Blow and Healing Reducing both cut your heals.",
     hp: 2500,
     speed: 12,
     melee: false,
@@ -902,7 +902,7 @@ const CLASSES = {
         range: 35,
         school: "magic",
         target: "friend",
-        blurb: "1.5 sec heal. If an enemy is targeted, it heals you. Click your partner's frame, or use your next-ally key, to heal them. Reduced by dampening and Sundering Blow.",
+        blurb: "1.5 sec heal. If an enemy is targeted, it heals you. Click your partner's frame, or use your next-ally key, to heal them. Reduced by Healing Reducing and Sundering Blow.",
         effect(source, target) {
           heal(source, target, 400, "Salve");
         },
@@ -917,7 +917,7 @@ const CLASSES = {
         range: 35,
         school: "magic",
         target: "friend",
-        blurb: "Absorbs damage for 15 sec. Leaves Spent Soul for 12 sec, preventing another shield. The shield is magic and can be purged. Dampening reduces the absorb.",
+        blurb: "Absorbs damage for 15 sec. Leaves Spent Soul for 12 sec, preventing another shield. The shield is magic and can be purged. Healing Reducing reduces the absorb.",
         extra(_source, target) {
           if (!target) return "No target";
           if (hasAura(target, "weakenedSoul")) return "Spent Soul";
@@ -1151,7 +1151,7 @@ const CLASSES = {
         castTime: 0,
         school: "magic",
         target: "self",
-        blurb: "Instant heal on yourself. Still reduced by dampening and Sundering Blow. 90 sec cooldown.",
+        blurb: "Instant heal on yourself. Still reduced by Healing Reducing and Sundering Blow. 90 sec cooldown.",
         effect(source) {
           heal(source, source, 560, "Last Plea");
         },
@@ -1393,7 +1393,7 @@ const CLASSES = {
         castTime: 0,
         school: "magic",
         target: "self",
-        blurb: "A shadow shell absorbs damage for 8 sec. Magic, so it can be purged. Dampening reduces the absorb.",
+        blurb: "A shadow shell absorbs damage for 8 sec. Magic, so it can be purged. Healing Reducing reduces the absorb.",
         effect(source) {
           const amount = Math.round(260 * (1 - currentDamp()));
           addAura(source, {
@@ -1420,7 +1420,7 @@ const CLASSES = {
         castTime: 0,
         school: "magic",
         target: "self",
-        blurb: "Swallow a stone and heal yourself. Still reduced by dampening and Sundering Blow. 90 sec cooldown.",
+        blurb: "Swallow a stone and heal yourself. Still reduced by Healing Reducing and Sundering Blow. 90 sec cooldown.",
         effect(source) {
           heal(source, source, 540, "Vita Stone");
         },
@@ -1974,7 +1974,7 @@ const CLASSES = {
         range: 35,
         school: "magic",
         target: "friend",
-        blurb: "Absorbs damage for 12 sec. Larger if the ally is inside your lantern. Dampening reduces the absorb. Magic, so it can be purged.",
+        blurb: "Absorbs damage for 12 sec. Larger if the ally is inside your lantern. Healing Reducing reduces the absorb. Magic, so it can be purged.",
         effect(source, target) {
           if (immune(target)) {
             floater(target, "Immune", "#ddd");
@@ -2061,7 +2061,7 @@ const CLASSES = {
         range: 35,
         school: "magic",
         target: "friend",
-        blurb: "1.5 sec heal. The reliable cast when an ally cannot reach the lantern. Reduced by dampening and Sundering Blow.",
+        blurb: "1.5 sec heal. The reliable cast when an ally cannot reach the lantern. Reduced by Healing Reducing and Sundering Blow.",
         effect(source, target) {
           heal(source, target, 360, "Mend");
         },
@@ -2423,7 +2423,7 @@ const CLASSES = {
         castTime: 0,
         school: "magic",
         target: "self",
-        blurb: "A chained ward absorbs damage for 8 sec. Magic, so it can be purged. Dampening reduces the absorb.",
+        blurb: "A chained ward absorbs damage for 8 sec. Magic, so it can be purged. Healing Reducing reduces the absorb.",
         effect(source) {
           const amount = Math.round(220 * (1 - currentDamp()));
           addAura(source, {
@@ -2595,7 +2595,7 @@ const CLASSES = {
         range: 35,
         school: "magic",
         target: "friend",
-        blurb: "1.5 sec heal. Your oath copies half of it onto the bound ally. Reduced by dampening and Sundering Blow.",
+        blurb: "1.5 sec heal. Your oath copies half of it onto the bound ally. Reduced by Healing Reducing and Sundering Blow.",
         effect(source, target) {
           healLinked(source, target, 340, "Chorus");
         },
@@ -5479,7 +5479,7 @@ function heal(source, target, raw, spellName, quiet) {
   source.stats.healing += gained;
   floater(target, `+${gained}`, crit ? "#b6ff6a" : "#7dff9a");
   const notes = [];
-  if (currentDamp() > 0) notes.push(`damp ${Math.round(currentDamp() * 100)}%`);
+  if (currentDamp() > 0) notes.push(`Healing Reducing ${Math.round(currentDamp() * 100)}%`);
   if (target.auras.some((a) => a.healReduce)) notes.push("Sundered");
   if (!quiet) combat(`${nameOf(source)} ${spellName} heals ${nameOf(target)} for ${gained}${notes.length ? ` (${notes.join(", ")})` : ""}.`);
   return gained;
@@ -7638,7 +7638,7 @@ function updateHud() {
   } else {
     $("clock").textContent = fmtTime(fightSeconds());
   }
-  $("damp").textContent = `Dampening ${Math.round(currentDamp() * 100)}%`;
+  $("damp").textContent = `Healing Reducing ${Math.round(currentDamp() * 100)}%`;
   const mapName = MAPS[match.map] ? MAPS[match.map].name : "Arena";
   $("phase-label").textContent = match.training
     ? `${mapName} · Training`
@@ -7774,7 +7774,7 @@ function showResult() {
         <img src="assets/arena-emblem.jpg" alt="">
         <div>
           <h2>${match.win ? "Victory" : "Defeat"}</h2>
-          <p>${match.win ? "Your team is still standing." : "Your team is down."} ${MAPS[match.map] ? MAPS[match.map].name : "Arena"} · ${fmtTime(fightSeconds())} · dampening ${Math.round(currentDamp() * 100)}%.</p>
+          <p>${match.win ? "Your team is still standing." : "Your team is down."} ${MAPS[match.map] ? MAPS[match.map].name : "Arena"} · ${fmtTime(fightSeconds())} · Healing Reducing ${Math.round(currentDamp() * 100)}%.</p>
         </div>
       </div>
       ${xp}
@@ -8617,7 +8617,7 @@ function renderLobby() {
         <div class="menu-title">
           <img class="menu-emblem" src="assets/arena-emblem.jpg" alt="">
           <div>
-            <h1>Arena</h1>
+            <h1>Arena of Magic and Might</h1>
             <p>Pick a class, choose your talents, set your keys, then enter. Training lets you place the frames first.</p>
           </div>
         </div>
