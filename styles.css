@@ -531,7 +531,7 @@ button, input { font-family: inherit; }
 
 #match-info {
   position: absolute;
-  top: 12px;
+  top: 48px;
   right: 16px;
   z-index: 4;
   text-align: right;
@@ -683,7 +683,7 @@ button, input { font-family: inherit; }
 
 #abilities {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px;
   background: rgba(8, 6, 5, 0.62);
@@ -805,6 +805,25 @@ button, input { font-family: inherit; }
 }
 
 #log .time { color: #8d8070; margin-right: 6px; }
+
+#sound-toggle {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: 40;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(224, 193, 122, 0.45);
+  background: rgba(10, 8, 7, 0.82);
+  color: #f3eadc;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#sound-toggle[aria-pressed="false"] {
+  color: #8d8070;
+}
 
 #tooltip {
   position: fixed;

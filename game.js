@@ -3,7 +3,7 @@
 /**
  * Arena prototype.
  * Tune feel in TUNE and the CLASSES ability numbers.
- * Each class: spells on 1–4, E, Q, R, plus a break charm (T) and a signature (F).
+ * Each class: spells on 1–4, E, Q, R, C, X, Z, plus a break charm (T) and a signature (F).
  */
 
 const TUNE = {
@@ -360,6 +360,22 @@ const CLASSES = {
           combat(`${nameOf(source)} quakes the ground.`);
         },
       }),
+      spell({
+        id: "quickStrike",
+        name: "Quick Strike",
+        short: "Quick",
+        cost: 10,
+        cd: 0.5,
+        gcd: false,
+        castTime: 0,
+        range: 5,
+        school: "physical",
+        target: "enemy",
+        blurb: "Medium melee damage. Off the global cooldown. Quick Strike itself cannot be used again for 0.5 sec.",
+        effect(source, target) {
+          dealDamage(source, target, 100, { direct: true, school: "physical", name: "Quick Strike" });
+        },
+      }),
       trinket(),
       spell({
         id: "spellReflection",
@@ -627,6 +643,30 @@ const CLASSES = {
           combat(`${nameOf(source)} raises an Ember Ward.`);
         },
       }),
+      spell({
+        id: "invis",
+        name: "Invis",
+        short: "Invis",
+        cost: 0,
+        cd: 90,
+        castTime: 0,
+        school: "magic",
+        target: "self",
+        blurb: "Drop enemy targeting and fade out for 12 sec. Usable in combat. A damaging spell or a direct hit reveals you. 90 sec cooldown.",
+        extra(source) {
+          if (isVeiled(source)) return "Already hidden";
+          return null;
+        },
+        effect(source) {
+          enterVeil(source, 12);
+          const aura = source.auras.find((a) => a.stealth);
+          if (aura) {
+            aura.name = "Invis";
+            aura.short = "Inv";
+          }
+          combat(`${nameOf(source)} fades out.`);
+        },
+      }),
       trinket(),
       spell({
         id: "iceBlock",
@@ -729,7 +769,7 @@ const CLASSES = {
         blurb: "Aim a ground circle within 30 yards, then click to place it. After 0.7 sec it arms and freezes the first enemy who steps on it for up to 5 sec. Breaks on damage. Shares incapacitate DR with Figment.",
         effect(source) {
           const spot = source.aimPoint || { x: source.x, y: source.y };
-          match.traps = match.traps.filter((t) => t.ownerId !== source.id);
+          match.traps = match.traps.filter((t) => t.ownerId !== source.id || t.kind === "bomb");
           const trapH = standSurface(spot.x, spot.y, (typeof spot.h === "number" ? spot.h : source.height) + 0.4);
           match.traps.push({
             ownerId: source.id,
@@ -853,6 +893,36 @@ const CLASSES = {
         },
         effect(source, target) {
           dealDamage(source, target, 320, { direct: true, school: "physical", name: "Finish Shot" });
+        },
+      }),
+      spell({
+        id: "bombTrap",
+        name: "Bomb Trap",
+        short: "Bomb",
+        cost: 15,
+        cd: 24,
+        castTime: 0,
+        range: 30,
+        radius: 3,
+        school: "physical",
+        target: "ground",
+        blurb: "Aim a ground circle within 30 yards, then click to place it. After 0.7 sec it arms. The first enemy who steps on it is knocked 20 yards away from the bomb.",
+        effect(source) {
+          const spot = source.aimPoint || { x: source.x, y: source.y };
+          match.traps = match.traps.filter((t) => t.ownerId !== source.id || t.kind !== "bomb");
+          const trapH = standSurface(spot.x, spot.y, (typeof spot.h === "number" ? spot.h : source.height) + 0.4);
+          match.traps.push({
+            ownerId: source.id,
+            team: source.team,
+            x: spot.x,
+            y: spot.y,
+            h: trapH == null ? 0 : trapH,
+            arm: 0.7,
+            life: 25,
+            radius: 3,
+            kind: "bomb",
+          });
+          combat(`${nameOf(source)} places a Bomb Trap.`);
         },
       }),
       trinket(),
@@ -1140,6 +1210,33 @@ const CLASSES = {
           combat(`${nameOf(source)} blesses ${nameOf(target)} with speed.`);
         },
       }),
+      spell({
+        id: "holyStrike",
+        name: "Holy Strike",
+        short: "Holy",
+        cost: 16,
+        cd: 45,
+        castTime: 0,
+        range: 30,
+        school: "magic",
+        target: "enemy",
+        reflectable: true,
+        harmful: true,
+        blurb: "Instant strike out to 30 yards. Stuns for 3 sec. Shares stun diminishing returns with Quake and Blindside.",
+        effect(source, target) {
+          if (tryReflect(source, target, this)) return;
+          dealDamage(source, target, 40, { direct: true, school: "magic", name: "Holy Strike" });
+          applyControl(source, target, {
+            id: "holyStrike",
+            name: "Holy Strike",
+            short: "Stun",
+            control: "stun",
+            dr: "stun",
+            duration: 3,
+            dispellable: true,
+          });
+        },
+      }),
       trinket(),
       spell({
         id: "desperatePrayer",
@@ -1409,6 +1506,46 @@ const CLASSES = {
           combat(`${nameOf(source)} raises an Umbral Shell.`);
         },
       }),
+      spell({
+        id: "soulPortal",
+        name: "Soul Portal",
+        short: "Portal",
+        cost: 10,
+        cd: 0,
+        holdCd: true,
+        returnCd: 30,
+        castTime: 0,
+        school: "magic",
+        ignoreLock: true,
+        target: "self",
+        blurb: "Place a portal at your feet. Press it again to return there. The 30 sec cooldown starts only after you return. Usable while silenced.",
+        effect(source) {
+          match.portals = match.portals || [];
+          const existing = match.portals.find((portal) => portal.ownerId === source.id);
+          if (existing) {
+            const from = { x: source.x, y: source.y };
+            portTo(source, existing.x, existing.y, existing.h);
+            source.auras = source.auras.filter((a) => a.control !== "root");
+            match.portals = match.portals.filter((portal) => portal.ownerId !== source.id);
+            source.cd.soulPortal = 30;
+            floater(source, "Return", "#c084fc");
+            combat(`${nameOf(source)} returns through the Soul Portal.`);
+            spellFx({ kind: "burst", color: "#c084fc", x: from.x, y: from.y, h: 1.1, life: 0.4, size: 1.3, sound: "portal" });
+            return;
+          }
+          source.cd.soulPortal = 0;
+          const h = supportAt(source.x, source.y, source.height);
+          match.portals.push({
+            ownerId: source.id,
+            team: source.team,
+            x: source.x,
+            y: source.y,
+            h: h == null ? 0 : h,
+          });
+          floater(source, "Portal", "#c084fc");
+          combat(`${nameOf(source)} opens a Soul Portal.`);
+        },
+      }),
       trinket(),
       spell({
         id: "healthstone",
@@ -1653,6 +1790,38 @@ const CLASSES = {
           dispelHelp(source, target);
         },
       }),
+      spell({
+        id: "wildStep",
+        name: "Wild Step",
+        short: "Step",
+        cost: 16,
+        cd: 22,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "Step to an ally within 40 yards, clear your roots, and heal them. 22 sec cooldown.",
+        extra(source, target) {
+          const ally = target && target !== source && target.team === source.team && target.hp > 0 ? target : livingPartner(source);
+          if (!ally) return "No ally";
+          if (dist(source, ally) > (this.range || 40)) return "Out of range";
+          return null;
+        },
+        effect(source, target) {
+          const ally = target && target !== source && target.team === source.team && target.hp > 0 ? target : livingPartner(source);
+          if (!ally || dist(source, ally) > (this.range || 40)) return;
+          const ang = Math.atan2(source.y - ally.y, source.x - ally.x);
+          source.auras = source.auras.filter((a) => a.control !== "root");
+          source.x = ally.x + Math.cos(ang) * 2.2;
+          source.y = ally.y + Math.sin(ang) * 2.2;
+          source.vx = 0;
+          source.vy = 0;
+          source.height = ally.height || 0;
+          clampUnit(source);
+          heal(source, ally, 160, "Wild Step");
+          combat(`${nameOf(source)} steps to ${nameOf(ally)}.`);
+        },
+      }),
       trinket(),
       spell({
         id: "ironbark",
@@ -1882,6 +2051,30 @@ const CLASSES = {
             remaining: 6,
             slow: 0.5,
           });
+        },
+      }),
+      spell({
+        id: "openVein",
+        name: "Open Vein",
+        short: "Vein",
+        cost: 20,
+        cd: 0,
+        castTime: 0,
+        range: 5,
+        school: "physical",
+        target: "enemy",
+        blurb: "A melee cut and a physical bleed for 10 sec. The bleed cannot be dispelled. Breaks the veil.",
+        effect(source, target) {
+          dealDamage(source, target, 55, { direct: true, school: "physical", name: "Open Vein" });
+          addAura(target, {
+            id: "openVein",
+            name: "Open Vein",
+            short: "Vn",
+            type: "debuff",
+            remaining: 10,
+            dot: { damage: 16, every: 2, tick: 2, school: "physical", name: "Open Vein", sourceId: source.id, fx: "#e15b5b" },
+          });
+          breakVeil(source);
         },
       }),
       trinket(),
@@ -2153,6 +2346,42 @@ const CLASSES = {
           source.auras = source.auras.filter((a) => a.control !== "root");
           clampUnit(source);
           combat(`${nameOf(source)} steps to the lantern.`);
+        },
+      }),
+      spell({
+        id: "gather",
+        name: "Gather",
+        short: "Gather",
+        cost: 12,
+        cd: 25,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "friend",
+        blurb: "Pull an ally to your lantern and clear their roots. 25 sec cooldown.",
+        extra(source, target) {
+          if (!lanternOf(source)) return "No lantern";
+          const ally = target && target !== source && target.team === source.team && target.hp > 0 ? target : livingPartner(source);
+          if (!ally) return "No ally";
+          if (dist(source, ally) > (this.range || 40)) return "Out of range";
+          return null;
+        },
+        effect(source, target) {
+          const lantern = lanternOf(source);
+          const ally = target && target !== source && target.team === source.team && target.hp > 0 ? target : livingPartner(source);
+          if (!lantern || !ally || dist(source, ally) > (this.range || 40)) return;
+          ally.x = lantern.x;
+          ally.y = lantern.y;
+          ally.height = lantern.h || 0;
+          ally.vx = 0;
+          ally.vy = 0;
+          ally.vz = 0;
+          ally.knock = 0;
+          ally.dash = null;
+          ally.auras = ally.auras.filter((a) => a.control !== "root");
+          clampUnit(ally);
+          floater(ally, "Gather", "#5ee0c5");
+          combat(`${nameOf(source)} gathers ${nameOf(ally)} to the lantern.`);
         },
       }),
       trinket(),
@@ -2439,6 +2668,37 @@ const CLASSES = {
           combat(`${nameOf(source)} raises a Bulwark.`);
         },
       }),
+      spell({
+        id: "lockdown",
+        name: "Lockdown",
+        short: "Lock",
+        cost: 16,
+        cd: 30,
+        castTime: 0,
+        range: 30,
+        school: "magic",
+        target: "enemy",
+        reflectable: true,
+        harmful: true,
+        blurb: "Stun a chained enemy for 2 sec. The chain stays. Shares stun diminishing returns. 30 sec cooldown.",
+        extra(source, target) {
+          if (!chainStacks(source, target)) return "No chain";
+          return null;
+        },
+        effect(source, target) {
+          if (tryReflect(source, target, this)) return;
+          if (!chainStacks(source, target)) return;
+          applyControl(source, target, {
+            id: "lockdown",
+            name: "Lockdown",
+            short: "Stun",
+            control: "stun",
+            dr: "stun",
+            duration: 2,
+            dispellable: true,
+          });
+        },
+      }),
       trinket(),
       spell({
         id: "bind",
@@ -2707,6 +2967,41 @@ const CLASSES = {
           combat(`${nameOf(source)} exchanges places with ${nameOf(partner)}.`);
         },
       }),
+      spell({
+        id: "call",
+        name: "Call",
+        short: "Call",
+        cost: 12,
+        cd: 25,
+        castTime: 0,
+        range: 40,
+        school: "magic",
+        target: "self",
+        blurb: "Pull your oath partner to you and clear their roots. 25 sec cooldown.",
+        extra(source) {
+          const partner = oathPartner(source);
+          if (!partner) return "No oath";
+          if (dist(source, partner) > 40) return "Out of range";
+          return null;
+        },
+        effect(source) {
+          const partner = oathPartner(source);
+          if (!partner || dist(source, partner) > 40) return;
+          const ang = source.facing;
+          partner.x = source.x + Math.cos(ang) * 2.2;
+          partner.y = source.y + Math.sin(ang) * 2.2;
+          partner.height = source.height || 0;
+          partner.vx = 0;
+          partner.vy = 0;
+          partner.vz = 0;
+          partner.knock = 0;
+          partner.dash = null;
+          partner.auras = partner.auras.filter((a) => a.control !== "root");
+          clampUnit(partner);
+          floater(partner, "Called", "#f2a3c7");
+          combat(`${nameOf(source)} calls ${nameOf(partner)}.`);
+        },
+      }),
       trinket(),
       spell({
         id: "unity",
@@ -2958,6 +3253,21 @@ const CLASSES = {
           });
           floater(source, "Tempo", "#8eb0ff");
           combat(`${nameOf(source)} finds their tempo.`);
+        },
+      }),
+      spell({
+        id: "secondWind",
+        name: "Second Wind",
+        short: "Wind",
+        cost: 30,
+        cd: 20,
+        castTime: 0,
+        school: "physical",
+        target: "self",
+        blurb: "Spend 30 Momentum to heal yourself. Still reduced by Healing Reducing and Sundering Blow. 20 sec cooldown.",
+        effect(source) {
+          heal(source, source, 240, "Second Wind");
+          floater(source, "Wind", "#8eb0ff");
         },
       }),
       trinket(),
@@ -3358,7 +3668,7 @@ const TALENTS = {
         spell.effect = function (source) {
           const old = { x: source.x, y: source.y, h: source.height || 0 };
           prev.call(this, source);
-          match.traps = match.traps.filter((t) => t.ownerId !== source.id);
+          match.traps = match.traps.filter((t) => t.ownerId !== source.id || t.kind === "bomb");
           match.traps.push({
             ownerId: source.id, team: source.team, x: old.x, y: old.y, h: old.h,
             arm: 0.7, life: 25, radius: 3, silence: !!source.trapSilence,
@@ -5076,6 +5386,7 @@ const SPELL_LOOK = {
   heroicLeap: { kind: "ring", color: "#e7c98a", life: 0.8, size: 3.2, style: "dust" },
   brace: { kind: "burst", color: "#e7c98a", life: 0.45, size: 1.4, style: "shield" },
   quake: { kind: "ring", color: "#e7c98a", life: 0.55, size: 8, style: "steel" },
+  quickStrike: { kind: "slash", color: "#f2e2b0", life: 0.28, size: 0.95, style: "blade" },
   emberWard: { kind: "burst", color: "#ff7a3c", life: 0.5, size: 1.45, style: "fire" },
   rapidFire: { kind: "bolt", color: "#e6d3a8", life: 0.22, size: 0.9, style: "arrow" },
   focusShot: { kind: "bolt", color: "#e09a3e", life: 0.4, size: 1.05, style: "arrow" },
@@ -5090,12 +5401,16 @@ const SPELL_LOOK = {
   tendon: { kind: "slash", color: "#d6a15a", life: 0.36, size: 1, style: "blade" },
   tend: { kind: "burst", color: "#5ee0c5", life: 0.48, size: 1.35, style: "heal" },
   wickstep: { kind: "blink", color: "#5ee0c5", life: 0.45, size: 1.3, style: "nature" },
+  gather: { kind: "burst", color: "#5ee0c5", life: 0.45, size: 1.35, style: "nature" },
   barbs: { kind: "bolt", color: "#e23d4a", life: 0.4, size: 1.15, style: "barb" },
   bulwark: { kind: "burst", color: "#e23d4a", life: 0.5, size: 1.4, style: "shield" },
+  lockdown: { kind: "burst", color: "#f0d48a", life: 0.42, size: 1.2, style: "steel" },
   comfort: { kind: "burst", color: "#f2a3c7", life: 0.48, size: 1.35, style: "holy" },
   exchange: { kind: "blink", color: "#f2a3c7", life: 0.45, size: 1.3, style: "holy" },
+  call: { kind: "burst", color: "#f2a3c7", life: 0.45, size: 1.3, style: "holy" },
   flourish: { kind: "slash", color: "#7f9cff", life: 0.45, size: 1.4, style: "blade" },
   tempo: { kind: "burst", color: "#8eb0ff", life: 0.42, size: 1.25, style: "arcane" },
+  secondWind: { kind: "burst", color: "#8eb0ff", life: 0.5, size: 1.4, style: "heal" },
   spellReflection: { kind: "burst", color: "#9ee7ff", life: 0.5, size: 1.45, style: "shield" },
   trinket: { kind: "ring", color: "#b8fff0", life: 0.55, size: 3.4, style: "holy" },
   frostbolt: { kind: "bolt", color: "#8fd7ff", life: 0.55, size: 1.35, style: "frost" },
@@ -5107,9 +5422,11 @@ const SPELL_LOOK = {
   scorch: { kind: "bolt", color: "#ffb45a", life: 0.48, size: 1.15, style: "fire" },
   pyroblast: { kind: "bolt", color: "#ff5a1f", life: 0.72, size: 2.25, style: "pyro" },
   iceBlock: { kind: "burst", color: "#c6f4ff", life: 0.55, size: 1.7, style: "frost" },
+  invis: { kind: "burst", color: "#9fd0ff", life: 0.5, size: 1.45, style: "arcane" },
   aimedShot: { kind: "bolt", color: "#f0e2b8", life: 0.42, size: 1.15, style: "arrow" },
   concussiveShot: { kind: "bolt", color: "#d9cbb0", life: 0.48, size: 1.05, style: "arrow" },
   freezingTrap: { kind: "ring", color: "#9eecff", life: 0.55, size: 3.4, style: "frost" },
+  bombTrap: { kind: "ring", color: "#ff7a3c", life: 0.55, size: 3.4, style: "fire" },
   silencingShot: { kind: "bolt", color: "#b9a6e0", life: 0.4, size: 1.05, style: "arrow" },
   disengage: { kind: "trail", color: "#e6d3b0", life: 0.42, style: "dust" },
   feignDeath: { kind: "burst", color: "#8a847c", life: 0.5, size: 1.4, style: "smoke" },
@@ -5122,6 +5439,7 @@ const SPELL_LOOK = {
   mindBlast: { kind: "bolt", color: "#9b6bff", life: 0.48, size: 1.25, style: "mind" },
   penance: { kind: "bolt", color: "#ffe08a", life: 0.28, size: 1, style: "holy" },
   desperatePrayer: { kind: "burst", color: "#b6ff6a", life: 0.55, size: 1.7, style: "holy" },
+  holyStrike: { kind: "burst", color: "#fff1b0", life: 0.42, size: 1.25, style: "holy" },
   shadowBolt: { kind: "bolt", color: "#7d5cff", life: 0.52, size: 1.4, style: "shadow" },
   corruption: { kind: "burst", color: "#6b4cff", life: 0.5, size: 1.2, style: "shadow" },
   agony: { kind: "burst", color: "#c084fc", life: 0.5, size: 1.25, style: "shadow" },
@@ -5130,6 +5448,7 @@ const SPELL_LOOK = {
   spellLock: { kind: "burst", color: "#d7c4ff", life: 0.38, size: 1.05, style: "arcane" },
   drainLife: { kind: "bolt", color: "#9b6bff", life: 0.36, size: 1.05, style: "siphon", pull: true },
   healthstone: { kind: "burst", color: "#7dff9a", life: 0.55, size: 1.6, style: "heal" },
+  soulPortal: { kind: "blink", color: "#c084fc", life: 0.45, size: 1.35, style: "shadow" },
   rejuvenation: { kind: "burst", color: "#7dff9a", life: 0.48, size: 1.2, style: "nature" },
   lifebloom: { kind: "burst", color: "#b6ff6a", life: 0.5, size: 1.25, style: "nature" },
   regrowth: { kind: "burst", color: "#8fd18a", life: 0.5, size: 1.3, style: "nature" },
@@ -5138,6 +5457,7 @@ const SPELL_LOOK = {
   cyclone: { kind: "burst", color: "#e7c98a", life: 0.55, size: 1.45, style: "nature" },
   wrath: { kind: "bolt", color: "#c6e58a", life: 0.48, size: 1.2, style: "nature" },
   ironbark: { kind: "burst", color: "#8f6a3a", life: 0.55, size: 1.5, style: "nature" },
+  wildStep: { kind: "blink", color: "#7dff9a", life: 0.45, size: 1.3, style: "nature" },
   sinisterStrike: { kind: "slash", color: "#fff569", life: 0.36, size: 1.05, style: "blade" },
   eviscerate: { kind: "slash", color: "#e15b5b", life: 0.46, size: 1.4, style: "blade" },
   cheapShot: { kind: "burst", color: "#f4f0c8", life: 0.42, size: 1.15, style: "steel" },
@@ -5146,6 +5466,7 @@ const SPELL_LOOK = {
   sprint: { kind: "ring", color: "#fff569", life: 0.5, size: 3.2, style: "dust" },
   stealth: { kind: "burst", color: "#6a645c", life: 0.5, size: 1.35, style: "smoke" },
   vanish: { kind: "burst", color: "#3a342c", life: 0.55, size: 1.6, style: "smoke" },
+  openVein: { kind: "slash", color: "#e15b5b", life: 0.4, size: 1.1, style: "blade" },
   kindle: { kind: "ring", color: "#5ee0c5", life: 0.6, size: 8, style: "nature" },
   soothe: { kind: "burst", color: "#b8fff0", life: 0.45, size: 1.25, style: "heal" },
   shelter: { kind: "burst", color: "#9fd0ff", life: 0.48, size: 1.35, style: "shield" },
@@ -5181,11 +5502,14 @@ const SPELL_LOOK = {
 };
 
 let fxSerial = 1;
+let fxSpell = "";
+let ear = null;
 
 function spellFx(spec) {
   if (!match) return;
   const life = spec.life || 0.35;
-  match.fx.push({ ...spec, id: fxSerial++, life, max: life });
+  const stamped = fxSpell && !spec.spell ? { ...spec, spell: fxSpell } : spec;
+  match.fx.push({ ...stamped, id: fxSerial++, life, max: life });
   if (match.fx.length > 64) match.fx.shift();
 }
 
@@ -5194,7 +5518,7 @@ function spellVisual(id, source, target, from) {
   if (!look || !match) return;
   const origin = from || { x: source.x, y: source.y, h: 0 };
   const dest = target || source;
-  if (id === "blink" || id === "reel" || id === "step" || id === "wickstep" || id === "exchange") {
+  if (id === "blink" || id === "reel" || id === "step" || id === "wickstep" || id === "exchange" || id === "soulPortal" || id === "wildStep") {
     spellFx({ kind: "burst", style: look.style || "arcane", color: look.color, x: origin.x, y: origin.y, h: 1.15, life: look.life, size: look.size });
     spellFx({ kind: "burst", style: look.style || "arcane", color: look.color, x: source.x, y: source.y, h: 1.15, life: look.life, size: look.size });
     return;
@@ -5219,7 +5543,7 @@ function spellVisual(id, source, target, from) {
     spellFx({ kind: "trail", style: "dust", color: look.color, x: origin.x, y: origin.y, h: 0.45, x2: source.dash.x, y2: source.dash.y, h2: 0.45, life: look.life });
     return;
   }
-  if (id === "freezingTrap") {
+  if (id === "freezingTrap" || id === "bombTrap") {
     const trap = [...match.traps].reverse().find((t) => t.ownerId === source.id);
     const spot = trap || origin;
     spellFx({ kind: "ring", color: look.color, x: spot.x, y: spot.y, h: 0.14, life: look.life, size: look.size });
@@ -5281,12 +5605,19 @@ function spellVisual(id, source, target, from) {
 
 function releaseSpell(source, target, ability) {
   const from = { x: source.x, y: source.y, h: source.height || 0 };
-  ability.effect(source, target);
-  spellVisual(ability.id, source, target, from);
+  const previous = fxSpell;
+  fxSpell = ability.id;
+  try {
+    ability.effect(source, target);
+    spellVisual(ability.id, source, target, from);
+  } finally {
+    fxSpell = previous;
+  }
 }
 
 function floater(unit, text, color) {
   match.floaters.push({
+    id: fxSerial++,
     unitId: unit.id,
     x: unit.x + (Math.random() - 0.5) * 2,
     y: unit.y - 1.6,
@@ -5783,7 +6114,7 @@ function tryCast(unit, abilityId, explicit, quiet) {
     unit.goal = null;
   } else {
     if (ability.charges) spendCharge(unit, ability);
-    else if (ability.cd) unit.cd[ability.id] = ability.cd;
+    else if (ability.cd && !ability.holdCd) unit.cd[ability.id] = ability.cd;
     releaseSpell(unit, target, ability);
   }
   return true;
@@ -5846,9 +6177,43 @@ function finishCast(unit) {
     unit.nextSpell = null;
     return;
   }
-  if (ability.cd) unit.cd[ability.id] = ability.cd;
+  if (ability.cd && !ability.holdCd) unit.cd[ability.id] = ability.cd;
   releaseSpell(unit, target, ability);
   releaseQueue(unit);
+}
+
+function portTo(unit, x, y, h) {
+  unit.dash = null;
+  unit.vx = 0;
+  unit.vy = 0;
+  unit.vz = 0;
+  unit.knock = 0;
+  unit.x = x;
+  unit.y = y;
+  const surface = supportAt(x, y, h == null ? unit.height : h);
+  unit.height = surface == null ? 0 : surface;
+  clampUnit(unit);
+}
+
+function knockFrom(unit, origin, yards) {
+  let dx = unit.x - origin.x;
+  let dy = unit.y - origin.y;
+  let d = Math.hypot(dx, dy);
+  if (d < 0.35) {
+    dx = Math.cos(unit.facing);
+    dy = Math.sin(unit.facing);
+    d = 1;
+  }
+  dx /= d;
+  dy /= d;
+  const dur = 0.75;
+  unit.auras = unit.auras.filter((a) => a.control !== "root");
+  unit.dash = null;
+  unit.vx = dx * (yards / dur);
+  unit.vy = dy * (yards / dur);
+  unit.vz = 6;
+  unit.knock = dur;
+  cancelCast(unit, true);
 }
 
 function blinkMove(unit, dx, dy, distance) {
@@ -5951,6 +6316,7 @@ function onDeath(unit, killer) {
   unit.auras = [];
   combat(`${nameOf(unit)} dies${killer ? ` to ${nameOf(killer)}` : ""}.`);
   floater(unit, "Dead", "#ff8d8d");
+  if (match.portals) match.portals = match.portals.filter((portal) => portal.ownerId !== unit.id);
 }
 
 function laneYs(size) {
@@ -6096,6 +6462,7 @@ function createMatch(spec) {
     time: 0,
     phase: "prep",
     traps: [],
+    portals: [],
     lanterns: [],
     logs: [],
     floaters: [],
@@ -6123,6 +6490,7 @@ function createMatch(spec) {
     ? `${mapName}. The dummies hold still. Drag the frames where you want them, then head back.`
     : `${mapName}. Take your positions. Gates open in a moment.`);
   hoverAbility = null;
+  ear = null;
   buildMatchUi();
   if (!window.HEADLESS) {
     $("lobby").classList.add("hidden");
@@ -6130,6 +6498,7 @@ function createMatch(spec) {
     $("result").classList.add("hidden");
     if ($("leave-training")) $("leave-training").classList.toggle("hidden", !match.training);
     requestAnimationFrame(resizeCanvas);
+    if (spec.training && window.ArenaSound) ArenaSound.play("gates", { volume: 0.62, steady: true });
   }
 }
 
@@ -6279,7 +6648,7 @@ function tickDash(unit, dt) {
     unit.vy = 0;
     clampUnit(unit);
     if (dash.yank) {
-      spellFx({ kind: "burst", color: "#e23d4a", x: unit.x, y: unit.y, h: 0.8, life: 0.35, size: 1.3 });
+      spellFx({ kind: "burst", color: "#e23d4a", x: unit.x, y: unit.y, h: 0.8, life: 0.35, size: 1.3, sound: "stun" });
       const from = unitById(dash.yankFrom);
       if (dash.stun && from && unit.hp > 0) {
         applyControl(from, unit, {
@@ -6295,7 +6664,7 @@ function tickDash(unit, dt) {
       return;
     }
     if (dash.lunge) {
-      spellFx({ kind: "burst", color: "#7f9cff", x: unit.x, y: unit.y, h: 0.45, life: 0.3, size: 1.2 });
+      spellFx({ kind: "burst", color: "#7f9cff", x: unit.x, y: unit.y, h: 0.45, life: 0.3, size: 1.2, sound: "hit" });
       const mark = unitById(dash.markId);
       if (mark && mark.hp > 0 && dist(unit, mark) < 7) {
         gainMomentum(unit, dash.momentum || 0);
@@ -6313,8 +6682,8 @@ function tickDash(unit, dt) {
       }
       return;
     }
-    if (dash.leap) spellFx({ kind: "burst", color: "#e7c98a", x: unit.x, y: unit.y, h: 0.4, life: 0.32, size: 1.55 });
-    else spellFx({ kind: "ring", color: "#ffe08a", x: unit.x, y: unit.y, h: 0.12, life: 0.32, size: 2.1 });
+    if (dash.leap) spellFx({ kind: "burst", color: "#e7c98a", x: unit.x, y: unit.y, h: 0.4, life: 0.32, size: 1.55, sound: "leap" });
+    else spellFx({ kind: "ring", color: "#ffe08a", x: unit.x, y: unit.y, h: 0.12, life: 0.32, size: 2.1, sound: "stun" });
     if (stunTarget && stunTarget.hp > 0 && dist(unit, stunTarget) < 7) {
       applyControl(unit, stunTarget, {
         id: "chargeStun",
@@ -6353,7 +6722,13 @@ function tickTraps(dt) {
     if (victim) {
       trap.life = 0;
       const owner = unitById(trap.ownerId);
-      spellFx({ kind: "burst", color: "#c6f4ff", x: victim.x, y: victim.y, h: 1.05, life: 0.4, size: 1.35 });
+      if (trap.kind === "bomb") {
+        spellFx({ kind: "burst", color: "#ff7a3c", x: victim.x, y: victim.y, h: 0.8, life: 0.45, size: 1.6, sound: "bomb" });
+        knockFrom(victim, trap, 20);
+        combat(`${nameOf(victim)} is blasted by a Bomb Trap.`);
+        continue;
+      }
+      spellFx({ kind: "burst", color: "#c6f4ff", x: victim.x, y: victim.y, h: 1.05, life: 0.4, size: 1.35, sound: "impact-frost" });
       applyControl(owner || victim, victim, {
         id: "freezingTrap",
         name: "Snare Trap",
@@ -6564,12 +6939,14 @@ function aiVanguard(unit) {
     if (!kill.auras.some((a) => a.slow)) tryCast(unit, "hamstring", kill);
     tryCast(unit, "overpower", kill);
   }
+  if (kill && dist(unit, kill) <= 5) tryCast(unit, "quickStrike", kill);
   wantRange(unit, kill, 0, 4.4);
 }
 
 function aiChanneler(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
+  if (unit.hp / unit.hpMax < 0.45 && !isVeiled(unit)) tryCast(unit, "invis");
   if (unit.hp / unit.hpMax < 0.25) tryCast(unit, "iceBlock");
   if (unit.hp / unit.hpMax < 0.55 && !unit.auras.some((a) => a.absorb)) tryCast(unit, "emberWard");
   tryKick(unit, "counterspell", 30);
@@ -6603,12 +6980,20 @@ function aiRanger(unit) {
     tryCast(unit, "disengage");
   }
   tryKick(unit, "silencingShot", 35, 8);
-  if (near && dist(unit, near) < 16 && (unit.cd.freezingTrap || 0) <= 0 && !match.traps.some((t) => t.ownerId === unit.id)) {
+  if (near && dist(unit, near) < 16 && (unit.cd.freezingTrap || 0) <= 0 && !match.traps.some((t) => t.ownerId === unit.id && t.kind !== "bomb")) {
     const ang = Math.atan2(near.y - unit.y, near.x - unit.x);
     const place = Math.min(12, Math.max(4, dist(unit, near) * 0.65));
     const spot = { x: unit.x + Math.cos(ang) * place, y: unit.y + Math.sin(ang) * place };
     unit.aimPoint = hasLoS(unit, spot) ? spot : { x: unit.x, y: unit.y };
     tryCast(unit, "freezingTrap");
+    unit.aimPoint = null;
+  }
+  if (near && dist(unit, near) < 11 && (unit.cd.bombTrap || 0) <= 0 && !match.traps.some((t) => t.ownerId === unit.id && t.kind === "bomb")) {
+    const ang = Math.atan2(near.y - unit.y, near.x - unit.x);
+    const place = Math.min(8, Math.max(3, dist(unit, near) * 0.45));
+    const spot = { x: unit.x + Math.cos(ang) * place, y: unit.y + Math.sin(ang) * place };
+    unit.aimPoint = hasLoS(unit, spot) ? spot : { x: unit.x, y: unit.y };
+    tryCast(unit, "bombTrap");
     unit.aimPoint = null;
   }
   if (kill && !unit.cast && dist(unit, kill) <= 35 && hasLoS(unit, kill)) {
@@ -6629,6 +7014,11 @@ function aiCleric(unit) {
   if (unit.hp / unit.hpMax < 0.34) tryCast(unit, "desperatePrayer");
   const near = nearestFoe(unit);
   if (near && dist(unit, near) < 8 && drFactor(near, "fear") > 0) tryCast(unit, "psychicScream");
+  const strike = foesOf(unit).find((foe) => (
+    !isHidden(foe) && !immune(foe) && dist(unit, foe) <= 30 && hasLoS(unit, foe)
+    && drFactor(foe, "stun") > 0 && (foe.cast || friends.some((friend) => dist(friend, foe) < 8))
+  ));
+  if (strike) tryCast(unit, "holyStrike", strike);
   for (const friend of friends) {
     if (pickDispel(friend, "help")) {
       tryCast(unit, "dispelMagic", friend);
@@ -6664,6 +7054,9 @@ function aiCleric(unit) {
 function aiHexer(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
+  const portal = (match.portals || []).find((entry) => entry.ownerId === unit.id);
+  if (unit.hp / unit.hpMax < 0.7 && !portal) tryCast(unit, "soulPortal");
+  if (unit.hp / unit.hpMax < 0.35 && portal) tryCast(unit, "soulPortal");
   if (unit.hp / unit.hpMax < 0.36) tryCast(unit, "healthstone");
   if (unit.hp / unit.hpMax < 0.6 && !unit.auras.some((a) => a.absorb)) tryCast(unit, "umbralShell");
   tryKick(unit, "spellLock", 30);
@@ -6720,6 +7113,7 @@ function aiGrovekeeper(unit) {
   if (!urgent && clone && !unit.cast && friends.every((friend) => friend.hp / friend.hpMax > 0.7)) {
     tryCast(unit, "cyclone", clone);
   }
+  if (lowest && lowest !== unit && lowest.hp / lowest.hpMax < 0.7 && dist(unit, lowest) > 16 && dist(unit, lowest) <= 40) tryCast(unit, "wildStep", lowest);
   if (!urgent && !unit.cast && kill && friends.every((friend) => friend.hp / friend.hpMax > 0.84)) {
     unit.targetId = kill.id;
     tryCast(unit, "wrath", kill);
@@ -6752,6 +7146,7 @@ function aiShade(unit) {
   ));
   if (off && !isVeiled(unit)) tryCast(unit, "gouge", off);
   if (kill && !isVeiled(unit) && dist(unit, kill) <= 5) {
+    if (!kill.auras.some((a) => a.id === "openVein" && a.dot?.sourceId === unit.id)) tryCast(unit, "openVein", kill);
     if (unit.resource >= 35) tryCast(unit, "eviscerate", kill);
     if (!kill.auras.some((a) => a.slow)) tryCast(unit, "tendon", kill);
     if (!unit.gcd) tryCast(unit, "sinisterStrike", kill);
@@ -6770,6 +7165,7 @@ function aiWarden(unit) {
   const hurt = friends.filter((f) => f.hp / f.hpMax < 0.62);
   if (lantern && (lowest?.hp / lowest.hpMax < 0.4 || hurt.length >= 2)) tryCast(unit, "beacon");
   if (lantern && near && dist(unit, near) < 10 && dist(unit, lantern) > 14) tryCast(unit, "wickstep");
+  if (lantern && lowest && lowest !== unit && lowest.hp / lowest.hpMax < 0.72 && dist(lowest, lantern) > lanternReach(lantern) + 2) tryCast(unit, "gather", lowest);
   const allyOut = lowest && (!lantern || dist(lowest, lantern) > lanternReach(lantern) + 1);
   if (!lantern || (allyOut && lowest.hp / lowest.hpMax < 0.88)) {
     unit.aimPoint = lowest && hasLoS(unit, lowest) ? { x: lowest.x, y: lowest.y } : { x: unit.x, y: unit.y };
@@ -6818,6 +7214,7 @@ function aiBinder(unit) {
       tryCast(unit, "reel");
       unit.aimPoint = null;
     }
+    if (stacks >= 2 && d <= 30 && drFactor(kill, "stun") > 0 && !kill.auras.some((a) => a.control === "stun")) tryCast(unit, "lockdown", kill);
     if (stacks >= 3 && d <= 30 && !kill.auras.some((a) => a.control === "stun")) tryCast(unit, "yank", kill);
     if (stacks >= 3) tryCast(unit, "sever", kill);
     if (stacks < 3) tryCast(unit, "barbs", kill);
@@ -6838,6 +7235,8 @@ function aiVow(unit) {
   if (lowest && lowest.hp / lowest.hpMax < 0.4) tryCast(unit, "unity");
   if (partner && !unit.auras.some((a) => a.id === "oath")) tryCast(unit, "oath", partner);
   if (partner && near && dist(unit, near) < 8 && dist(partner, near) > 18) tryCast(unit, "exchange", partner);
+  const sworn = oathPartner(unit);
+  if (sworn && sworn.hp / sworn.hpMax < 0.6 && dist(unit, sworn) > 14) tryCast(unit, "call");
   if (partner && lowest && lowest.hp / lowest.hpMax < 0.55 && !hasAura(unit, "link")) tryCast(unit, "link");
   for (const friend of friends) {
     if (pickDispel(friend, "help")) {
@@ -6861,6 +7260,7 @@ function aiVow(unit) {
 function aiDuelist(unit) {
   const kill = pickKillTarget(unit);
   if (kill) unit.targetId = kill.id;
+  if (unit.hp / unit.hpMax < 0.4 && unit.resource >= 30) tryCast(unit, "secondWind");
   tryKick(unit, "parry", 5);
   if (kill && !isDuelMark(unit, kill)) tryCast(unit, "mark", kill);
   if (kill && isDuelMark(unit, kill) && kill.hp / kill.hpMax < 0.65) tryCast(unit, "isolate", kill);
@@ -7060,8 +7460,162 @@ function checkEnd() {
   publishSnap();
 }
 
+function sfxVolume(name) {
+  if (name === "bomb" || name === "death" || name === "gates" || name === "victory" || name === "defeat") return 0.85;
+  if (name === "slash" || name === "stun" || name === "hit" || name.startsWith("impact")) return 0.7;
+  if (name.startsWith("cast") || name === "shot" || name === "swing" || name === "leap" || name === "blink") return 0.55;
+  if (name === "heal" || name === "stealth" || name === "gather" || name === "jump") return 0.4;
+  return 0.6;
+}
+
+function soundForFx(fx) {
+  if (fx.sound) return fx.sound;
+  const bySpell = {
+    blink: "blink", reel: "leap", step: "blink", wickstep: "blink", exchange: "blink",
+    soulPortal: "portal", wildStep: "blink", disengage: "leap", heroicLeap: "leap",
+    charge: "leap", lunge: "leap", freezingTrap: "trap", bombTrap: "trap",
+    stealth: "stealth", vanish: "stealth", invis: "stealth",
+    quake: "stun", holyStrike: "stun", cheapShot: "stun", lockdown: "stun", gouge: "stun",
+    pummel: "interrupt", kick: "interrupt", counterspell: "interrupt", silencingShot: "interrupt",
+    silenceLash: "interrupt", spellLock: "interrupt", hush: "interrupt", rebuke: "interrupt",
+    frostNova: "impact-frost", psychicScream: "cast-shadow", polymorph: "cast-arcane",
+    fear: "cast-shadow", iceBlock: "impact-frost", deterrence: "shield", feignDeath: "stealth",
+    emberWard: "shield", umbralShell: "shield", bulwark: "shield", brace: "shield",
+    powerWordShield: "shield", shelter: "shield", spellReflection: "shield", ironbark: "shield",
+    desperatePrayer: "heal", healthstone: "heal", secondWind: "heal",
+  };
+  if (fx.spell && bySpell[fx.spell]) return bySpell[fx.spell];
+  if (!fx.style && (fx.size || 1) < 0.9) return null;
+  const style = fx.style || "";
+  const kind = fx.kind || "";
+  if (style === "blade" || kind === "slash") return "slash";
+  if (style === "smoke") return "stealth";
+  if (style === "dust") return kind === "trail" ? "leap" : "swing";
+  if (style === "steel") return kind === "ring" || (fx.size || 0) > 1 ? "stun" : "interrupt";
+  if (style === "shield") return "shield";
+  if (style === "heal") return "heal";
+  if (style === "fear") return "cast-shadow";
+  if (style === "arrow" || style === "barb") return "shot";
+  if (style === "frost" || style === "ice") {
+    if (kind === "ring") return "trap";
+    if (kind === "bolt") return "cast-frost";
+    return "impact-frost";
+  }
+  if (style === "fire") {
+    if (kind === "ring") return (fx.size || 0) >= 6 ? "impact-fire" : "trap";
+    if (kind === "bolt") return "cast-fire";
+    return "impact-fire";
+  }
+  if (style === "shadow") return kind === "bolt" ? "cast-shadow" : "impact-shadow";
+  if (style === "holy") return kind === "bolt" ? "cast-holy" : "impact-holy";
+  if (style === "nature") {
+    if (kind === "bolt" || kind === "ring") return "cast-nature";
+    return "heal";
+  }
+  if (style === "arcane" || style === "mind") return kind === "bolt" ? "cast-arcane" : "impact-arcane";
+  if (kind === "bolt") return "shot";
+  if (kind === "trail") return "leap";
+  return null;
+}
+
+function hearWorld() {
+  if (!match || !window.ArenaSound || !match.player) return;
+  const player = match.player;
+  const queue = [];
+  const hear = (name, opts) => {
+    if (!name) return;
+    opts = opts || {};
+    queue.push({
+      name,
+      volume: opts.volume == null ? sfxVolume(name) : opts.volume,
+      x: opts.x,
+      y: opts.y,
+      steady: !!opts.steady,
+    });
+  };
+  if (!ear) {
+    ear = { fx: new Set(), floaters: new Set(), hp: new Map(), vz: new Map(), cast: new Map(), phase: match.phase };
+    for (const fx of match.fx || []) if (fx.id != null) ear.fx.add(fx.id);
+    for (const floater of match.floaters || []) if (floater.id != null) ear.floaters.add(floater.id);
+    for (const unit of match.units) {
+      ear.hp.set(unit.id, unit.hp);
+      ear.vz.set(unit.id, unit.vz || 0);
+      ear.cast.set(unit.id, unit.cast && unit.cast.ability ? unit.cast.ability.id : "");
+    }
+    return;
+  }
+  if (ear.phase !== "fight" && match.phase === "fight") hear("gates", { volume: 0.75, steady: true });
+  if (ear.phase !== "end" && match.phase === "end") hear(match.win ? "victory" : "defeat", { volume: 0.9, steady: true });
+  ear.phase = match.phase;
+
+  const fresh = [];
+  const liveFx = new Set();
+  for (const fx of match.fx || []) {
+    if (fx.id == null) continue;
+    liveFx.add(fx.id);
+    if (ear.fx.has(fx.id)) continue;
+    ear.fx.add(fx.id);
+    if (fx.conceal && fx.conceal !== player.team) continue;
+    fresh.push(fx);
+    hear(soundForFx(fx), { x: fx.x, y: fx.y });
+  }
+  for (const id of ear.fx) if (!liveFx.has(id)) ear.fx.delete(id);
+
+  const liveFloaters = new Set();
+  for (const floater of match.floaters || []) {
+    if (floater.id == null) continue;
+    liveFloaters.add(floater.id);
+    if (ear.floaters.has(floater.id)) continue;
+    ear.floaters.add(floater.id);
+    const text = String(floater.text || "");
+    const covered = fresh.some((fx) => Math.hypot((fx.x || 0) - floater.x, (fx.y || 0) - floater.y) < 6);
+    if (covered && text !== "Immune") continue;
+    if (text.startsWith("+")) hear("heal", { volume: 0.38, x: floater.x, y: floater.y });
+    else if (floater.color === "#ffd2d2" && floater.unitId === player.id) hear("ui-deny", { volume: 0.4 });
+    else if (floater.color === "#9fd0ff") hear("shield", { volume: 0.2, x: floater.x, y: floater.y });
+    else if (/[0-9]/.test(text)) {
+      const dot = floater.color === "#ffb26b";
+      hear(dot ? "hit-magic" : "hit", { volume: dot ? 0.16 : (floater.color === "#ffe14a" ? 0.72 : 0.52), x: floater.x, y: floater.y });
+    }
+  }
+  for (const id of ear.floaters) if (!liveFloaters.has(id)) ear.floaters.delete(id);
+
+  for (const unit of match.units) {
+    const prevHp = ear.hp.has(unit.id) ? ear.hp.get(unit.id) : unit.hp;
+    if (prevHp > 0 && unit.hp <= 0 && !unit.dummy) hear("death", { volume: 0.8, x: unit.x, y: unit.y });
+    ear.hp.set(unit.id, unit.hp);
+    const prevVz = ear.vz.has(unit.id) ? ear.vz.get(unit.id) : 0;
+    if (!unit.dash && unit.hp > 0 && (unit.vz || 0) > 8 && prevVz <= 1) hear("jump", { volume: 0.34, x: unit.x, y: unit.y });
+    ear.vz.set(unit.id, unit.vz || 0);
+    const castId = unit.cast && unit.cast.ability ? unit.cast.ability.id : "";
+    const prevCast = ear.cast.get(unit.id) || "";
+    if (castId && castId !== prevCast && unit.cast.total >= 0.45) {
+      const physical = unit.cast.ability.school === "physical";
+      hear(physical && !unit.cast.channel ? "swing" : "gather", { volume: 0.32, x: unit.x, y: unit.y });
+    }
+    ear.cast.set(unit.id, castId);
+  }
+
+  const kept = [];
+  for (const item of queue.sort((a, b) => b.volume - a.volume)) {
+    const same = kept.some((other) => other.name === item.name && Math.hypot((other.x || 0) - (item.x || 0), (other.y || 0) - (item.y || 0)) < 5);
+    if (!same) kept.push(item);
+  }
+  for (const item of kept.slice(0, 6)) {
+    ArenaSound.play(item.name, {
+      volume: item.volume,
+      x: item.x,
+      y: item.y,
+      steady: item.steady,
+      listenerX: player.x,
+      listenerY: player.y,
+    });
+  }
+}
+
 function update(dt) {
   if (!match) return;
+  hearWorld();
   if (match.fx) {
     for (const effect of match.fx) effect.life -= dt;
     match.fx = match.fx.filter((effect) => effect.life > 0);
@@ -7177,27 +7731,27 @@ function fmtTime(t) {
 
 const SPELL_GLYPH = {
   charge: "rush", mortalStrike: "slash", hamstring: "slow", overpower: "press", execute: "finisher",
-  pummel: "interrupt", heroicLeap: "leap", brace: "guard", quake: "stun", spellReflection: "reflect",
+  pummel: "interrupt", heroicLeap: "leap", brace: "guard",   quake: "stun", spellReflection: "reflect", quickStrike: "press",
   frostbolt: "ice", fireBlast: "fire", polymorph: "sheep", counterspell: "interrupt", blink: "blink",
-  frostNova: "nova", scorch: "fire", pyroblast: "inferno", emberWard: "ward", iceBlock: "ice",
-  aimedShot: "shot", concussiveShot: "slow", freezingTrap: "trap", rapidFire: "shot", silencingShot: "interrupt",
+  frostNova: "nova", scorch: "fire", pyroblast: "inferno", emberWard: "ward", iceBlock: "ice", invis: "veil",
+  aimedShot: "shot", concussiveShot: "slow", freezingTrap: "trap", bombTrap: "fire", rapidFire: "shot", silencingShot: "interrupt",
   disengage: "back", feignDeath: "feign", focusShot: "shot", finishShot: "shot", deterrence: "deflect",
   flashHeal: "heal", powerWordShield: "shield", shadowWordPain: "pain", psychicScream: "fear",
-  dispelMagic: "cleanse", mindBlast: "mind", penance: "channel", blessing: "bless", speedBlessing: "haste", desperatePrayer: "heal",
+  dispelMagic: "cleanse", mindBlast: "mind", penance: "channel", blessing: "bless", speedBlessing: "haste", desperatePrayer: "heal", holyStrike: "stun",
   shadowBolt: "shadow", corruption: "dot", agony: "dot", unstableAffliction: "curse", fear: "fear",
-  spellLock: "interrupt", drainLife: "drain", wither: "wither", umbralShell: "ward", healthstone: "stone",
+  spellLock: "interrupt", drainLife: "drain", wither: "wither", umbralShell: "ward", healthstone: "stone", soulPortal: "blink",
   rejuvenation: "leaf", lifebloom: "bloom", regrowth: "leaf", wildGrowth: "bloom", swiftmend: "heal",
-  cyclone: "cyclone", wrath: "leaf", thicket: "root", clearbloom: "cleanse", ironbark: "bark",
+  cyclone: "cyclone", wrath: "leaf", thicket: "root", clearbloom: "cleanse", ironbark: "bark", wildStep: "blink",
   sinisterStrike: "dagger", eviscerate: "finisher", cheapShot: "stun", kick: "interrupt", gouge: "stun",
-  sprint: "rush", stealth: "veil", step: "blink", tendon: "slow", vanish: "veil",
+  sprint: "rush", stealth: "veil", step: "blink", tendon: "slow", vanish: "veil", openVein: "dagger",
   kindle: "lantern", soothe: "heal", shelter: "shield", hush: "interrupt", flare: "lantern",
-  mend: "heal", snuff: "fire", tend: "lantern", wickstep: "blink", beacon: "lantern",
+  mend: "heal", snuff: "fire", tend: "lantern", wickstep: "blink", gather: "lantern", beacon: "lantern",
   lash: "chain", brand: "brand", yank: "yank", sever: "slash", silenceLash: "interrupt",
-  hobble: "slow", reel: "yank", barbs: "chain", bulwark: "shield", bind: "chain",
+  hobble: "slow", reel: "yank", barbs: "chain", bulwark: "shield", lockdown: "stun", bind: "chain",
   oath: "heart", pulse: "heal", link: "link", unravel: "cleanse", chorus: "heal", rebuke: "interrupt",
-  thread: "link", comfort: "heal", exchange: "blink", unity: "heart",
+  thread: "link", comfort: "heal", exchange: "blink", call: "yank", unity: "heart",
   mark: "mark", fleche: "slash", riposte: "deflect", lunge: "rush", crosscut: "cross",
-  parry: "deflect", feint: "veil", flourish: "finisher", tempo: "rush", isolate: "mark", trinket: "charm",
+  parry: "deflect", feint: "veil", flourish: "finisher", tempo: "rush", secondWind: "heal", isolate: "mark", trinket: "charm",
 };
 
 const iconCache = {};
@@ -7586,6 +8140,9 @@ function selectTarget(id) {
 }
 
 function abilityTip(ability) {
+  const title = ability.id === "soulPortal" && (match.portals || []).some((portal) => portal.ownerId === match.player.id)
+    ? "Return"
+    : ability.name;
   const bits = [];
   if (ability.channel) bits.push(`${ability.castTime}s channel`);
   else if (ability.id === "pyroblast") bits.push(`${ability.castTime || 2.5}s cast, instant at ${match.player.hotNeed || 3} Wildfire`);
@@ -7597,9 +8154,10 @@ function abilityTip(ability) {
   const price = abilityCost(match.player, ability);
   if (price) bits.push(`${price} ${res}`);
   if (ability.charges) bits.push(`${ability.charges} charges, ${ability.recharge}s each`);
+  else if (ability.returnCd) bits.push(`${ability.returnCd}s cooldown after you return`);
   else if (ability.cd) bits.push(`${ability.cd}s cooldown`);
   if (ability.gcd === false) bits.push("Off global cooldown");
-  return `<strong>${ability.name}</strong><div class="meta">${ability.tag} · ${bits.join(" · ")}</div><p>${ability.blurb}</p>`;
+  return `<strong>${title}</strong><div class="meta">${ability.tag} · ${bits.join(" · ")}</div><p>${ability.blurb}</p>`;
 }
 
 function showTip(e, html) {
@@ -7701,7 +8259,7 @@ function updateHud() {
   for (const ability of player.abilities) {
     const btn = ability.el;
     let cd = Math.max(ability.gcd === false ? 0 : player.gcd, player.cd[ability.id] || 0);
-    let base = ability.cd || (ability.gcd === false ? 0 : TUNE.gcd);
+    let base = ability.returnCd || ability.cd || (ability.gcd === false ? 0 : TUNE.gcd);
     let chargeLeft = null;
     if (ability.charges) {
       chargeLeft = player.charges[ability.id] == null ? ability.charges : player.charges[ability.id];
@@ -7723,6 +8281,7 @@ function updateHud() {
     else if (price) costText = String(price);
     else if (ability.tag === "Signature") costText = "Signature";
     if (ability.id === "pyroblast" && hotStreakReady(player)) costText = "Instant";
+    if (ability.id === "soulPortal" && (match.portals || []).some((portal) => portal.ownerId === player.id)) costText = "Return";
     btn.querySelector(".cost").textContent = costText;
     btn.classList.toggle("primed", ability.id === "pyroblast" && hotStreakReady(player));
     const selected = unitById(player.targetId);
@@ -8036,20 +8595,25 @@ function packMatch() {
     map: match.map,
     winSide: match.winSide || null,
     logs: match.logs.map((line) => ({ t: line.t, text: line.text })),
-    traps: match.traps.map((t) => ({ ownerId: t.ownerId, team: t.team, x: t.x, y: t.y, h: t.h || 0, life: t.life, arm: t.arm, radius: t.radius })),
+    traps: match.traps.map((t) => ({
+      ownerId: t.ownerId, team: t.team, x: t.x, y: t.y, h: t.h || 0, life: t.life, arm: t.arm, radius: t.radius,
+      kind: t.kind || "", silence: !!t.silence,
+    })),
+    portals: (match.portals || []).map((p) => ({ ownerId: p.ownerId, team: p.team, x: p.x, y: p.y, h: p.h || 0 })),
     lanterns: (match.lanterns || []).map((l) => ({ ownerId: l.ownerId, team: l.team, x: l.x, y: l.y, h: l.h || 0, life: l.life, radius: l.radius, tick: l.tick, beacon: l.beacon })),
     fx: (match.fx || []).map((effect) => ({
       id: effect.id, kind: effect.kind, color: effect.color, x: effect.x, y: effect.y, h: effect.h,
       x2: effect.x2, y2: effect.y2, h2: effect.h2,       life: effect.life, max: effect.max, size: effect.size, round: !!effect.round,
-      style: effect.style || "", conceal: effect.conceal || "",
+      style: effect.style || "", conceal: effect.conceal || "", spell: effect.spell || "", sound: effect.sound || "",
     })),
-    floaters: match.floaters.map((f) => ({ unitId: f.unitId, x: f.x, y: f.y, h: f.h, text: f.text, color: f.color, life: f.life })),
+    floaters: match.floaters.map((f) => ({ id: f.id, unitId: f.unitId, x: f.x, y: f.y, h: f.h, text: f.text, color: f.color, life: f.life })),
     units: match.units.map((unit) => ({
       id: unit.id,
       x: unit.x,
       y: unit.y,
       height: unit.height,
       facing: unit.facing,
+      vz: unit.vz || 0,
       hp: unit.hp,
       resource: unit.resource,
       gcd: unit.gcd,
@@ -8097,6 +8661,7 @@ function applySnap(state) {
   if (state.winSide) match.win = match.player.team === state.winSide;
   match.logs = state.logs || [];
   match.traps = state.traps || [];
+  match.portals = state.portals || [];
   match.lanterns = state.lanterns || [];
   match.fx = state.fx || [];
   match.floaters = state.floaters || [];
@@ -8107,6 +8672,7 @@ function applySnap(state) {
     unit.toY = snap.y;
     unit.height = snap.height;
     unit.facing = snap.facing;
+    unit.vz = snap.vz || 0;
     unit.hp = snap.hp;
     unit.resource = snap.resource;
     unit.gcd = snap.gcd;

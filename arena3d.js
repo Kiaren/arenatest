@@ -737,6 +737,7 @@ function buildScene() {
     mapRoot: null,
     walkables: [],
     traps: [],
+    portals: [],
     lanterns: [],
     floaters: [],
     camPos: null,
@@ -932,8 +933,34 @@ function syncTraps(match) {
     const mesh = gfx.traps[i];
     mesh.position.set(trap.x, (trap.h || 0) + 0.1, trap.y);
     mesh.scale.setScalar(trap.radius);
-    mesh.material.color.set(trap.arm > 0 ? 0xd0d0d0 : 0x9eecff);
+    const bomb = trap.kind === "bomb";
+    mesh.material.color.set(bomb ? (trap.arm > 0 ? 0xc45a28 : 0xff7a3c) : (trap.arm > 0 ? 0xd0d0d0 : 0x9eecff));
     mesh.material.opacity = trap.arm > 0 ? 0.45 : 0.95;
+  });
+}
+
+function syncPortals(match) {
+  const list = match.portals || [];
+  gfx.portals = gfx.portals || [];
+  while (gfx.portals.length > list.length) {
+    const mesh = gfx.portals.pop();
+    gfx.scene.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+  for (let i = gfx.portals.length; i < list.length; i++) {
+    const mesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.55, 1.15, 24),
+      new THREE.MeshBasicMaterial({ color: 0xc084fc, side: THREE.DoubleSide, transparent: true, opacity: 0.92 })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    gfx.scene.add(mesh);
+    gfx.portals.push(mesh);
+  }
+  list.forEach((portal, i) => {
+    const mesh = gfx.portals[i];
+    mesh.position.set(portal.x, (portal.h || 0) + 0.12, portal.y);
+    mesh.scale.setScalar(1.35);
   });
 }
 
@@ -1100,6 +1127,7 @@ function render(match, dt) {
   }
 
   syncTraps(match);
+  syncPortals(match);
   syncLanterns(match);
   syncFloaters(match);
   syncFx(match);
@@ -1677,6 +1705,12 @@ function reset() {
   gfx.fighters.clear();
   for (const mesh of gfx.traps) gfx.scene.remove(mesh);
   gfx.traps = [];
+  for (const mesh of gfx.portals || []) {
+    gfx.scene.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+  gfx.portals = [];
   if (gfx.lanterns) {
     for (const mesh of gfx.lanterns) {
       gfx.scene.remove(mesh);

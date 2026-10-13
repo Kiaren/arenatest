@@ -26,6 +26,7 @@ const TYPES = {
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".glb": "model/gltf-binary",
+  ".wav": "audio/wav",
 };
 
 const rooms = new Map();
