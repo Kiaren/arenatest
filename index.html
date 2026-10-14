@@ -19,13 +19,16 @@
       </div>
       <button type="button" id="leave-training" class="text-btn hidden">Back to lobby</button>
       <div id="actionbar">
-        <div id="status-line"></div>
-        <div id="castbar" class="hidden">
-          <div id="cast-fill"></div>
-          <span id="cast-label"></span>
+        <div id="bar-scale">
+          <div id="status-line"></div>
+          <div id="castbar" class="hidden">
+            <div id="cast-fill"></div>
+            <span id="cast-label"></span>
+          </div>
+          <div id="abilities"></div>
         </div>
-        <div id="abilities"></div>
-        <div id="hint">WASD move · Space jump · right-drag orbit · wheel zoom · drag a unit frame to move it · ground aim then click</div>
+        <span id="bar-resize" class="resize-grip" role="slider" aria-label="Action bar size" aria-valuemin="70" aria-valuemax="180" aria-valuenow="100" title="Drag right or up to resize the action bar. Double-click to reset."></span>
+        <div id="hint">WASD move · Space jump · right-drag orbit · wheel zoom · drag a unit frame to move it · drag a gold corner to resize · ground aim then click</div>
       </div>
       <div id="log"></div>
       <div id="announce"></div>

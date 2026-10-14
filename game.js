@@ -8007,25 +8007,112 @@ const CLASS_CREST = {
 
 let frameLayout = {};
 let frameDrag = null;
+const HUD_SCALE_MIN = 0.7;
+const HUD_SCALE_MAX = 1.8;
+let hudScale = { frames: 1, bar: 1 };
 try {
   frameLayout = JSON.parse(localStorage.getItem("arenaFrames") || "{}") || {};
-} catch (err) { frameLayout = {}; }
+  const savedScale = JSON.parse(localStorage.getItem("arenaHudScale") || "{}");
+  const readScale = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? clamp(n, HUD_SCALE_MIN, HUD_SCALE_MAX) : 1;
+  };
+  if (savedScale && typeof savedScale === "object") {
+    hudScale = { frames: readScale(savedScale.frames), bar: readScale(savedScale.bar) };
+  }
+} catch (err) {
+  frameLayout = frameLayout || {};
+  hudScale = { frames: 1, bar: 1 };
+}
+
+function applyHudScale() {
+  if (window.HEADLESS || !document.documentElement) return;
+  document.documentElement.style.setProperty("--frame-scale", String(hudScale.frames));
+  document.documentElement.style.setProperty("--bar-scale", String(hudScale.bar));
+}
+
+function setHudScale(kind, value) {
+  hudScale[kind] = Math.round(clamp(value, HUD_SCALE_MIN, HUD_SCALE_MAX) * 100) / 100;
+  applyHudScale();
+  const grip = kind === "bar" ? $("bar-resize") : null;
+  if (grip) grip.setAttribute("aria-valuenow", String(Math.round(hudScale.bar * 100)));
+  try { localStorage.setItem("arenaHudScale", JSON.stringify(hudScale)); } catch (err) { /* ignore */ }
+  layoutFrames();
+}
+
+function makeScaleGrip(kind) {
+  const grip = document.createElement("span");
+  grip.className = "resize-grip";
+  grip.setAttribute("role", "slider");
+  grip.setAttribute("aria-label", "Frame size");
+  grip.setAttribute("aria-valuemin", "70");
+  grip.setAttribute("aria-valuemax", "180");
+  grip.title = "Drag to resize all frames. Double-click to reset.";
+  bindScaleGrip(grip, kind);
+  return grip;
+}
+
+function bindScaleGrip(el, kind) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const start = hudScale[kind];
+    el.classList.add("sizing");
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* the pointer can still resize without capture */ }
+    const move = (ev) => {
+      const dragged = kind === "bar"
+        ? (ev.clientX - startX) - (ev.clientY - startY)
+        : (ev.clientX - startX) + (ev.clientY - startY);
+      setHudScale(kind, start + dragged / 220);
+    };
+    const end = () => {
+      el.classList.remove("sizing");
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", end);
+      el.removeEventListener("pointercancel", end);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+  });
+  el.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHudScale(kind, 1);
+  });
+}
 
 function defaultFramePos(side, index, count, stage) {
-  const w = 196;
-  const h = 72;
+  const scale = hudScale.frames;
+  const w = 196 * scale;
+  const h = 84 * scale;
   const gap = 8;
   if (side === "enemy") {
     const total = count * w + (count - 1) * gap;
+    if (total > stage.clientWidth - 16) {
+      return { x: 14, y: 52 + index * (h + gap) };
+    }
     return { x: Math.max(8, (stage.clientWidth - total) / 2) + index * (w + gap), y: 14 };
   }
-  return { x: 14, y: stage.clientHeight - 132 - (index + 1) * h - index * gap };
+  const bar = $("actionbar");
+  const stageTop = stage.getBoundingClientRect().top;
+  const barTop = bar ? bar.getBoundingClientRect().top - stageTop : stage.clientHeight - 148;
+  return { x: 14, y: barTop - 12 - (index + 1) * h - index * gap };
+}
+
+function frameBox(el) {
+  const box = el.getBoundingClientRect();
+  return { w: box.width || el.offsetWidth, h: box.height || el.offsetHeight };
 }
 
 function layoutFrames() {
   if (frameDrag || !match || window.HEADLESS) return;
   const stage = $("stage");
   if (!stage || stage.clientWidth < 20) return;
+  applyHudScale();
   const groups = { ally: [], enemy: [] };
   for (const unit of match.units) {
     if (!unit.el) return;
@@ -8035,8 +8122,9 @@ function layoutFrames() {
     groups[side].forEach((unit, index) => {
       const saved = frameLayout[`${side}-${index}`];
       const pos = saved || defaultFramePos(side, index, groups[side].length, stage);
-      const maxX = Math.max(0, stage.clientWidth - unit.el.offsetWidth);
-      const maxY = Math.max(0, stage.clientHeight - unit.el.offsetHeight);
+      const box = frameBox(unit.el);
+      const maxX = Math.max(0, stage.clientWidth - box.w);
+      const maxY = Math.max(0, stage.clientHeight - box.h);
       unit.el.style.left = `${clamp(pos.x, 0, maxX)}px`;
       unit.el.style.top = `${clamp(pos.y, 0, maxY)}px`;
     });
@@ -8046,6 +8134,7 @@ function layoutFrames() {
 function bindFrameDrag(el, slot, unitId) {
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    if (e.target.closest && e.target.closest(".resize-grip")) return;
     const parent = $("unit-frames").getBoundingClientRect();
     const rect = el.getBoundingClientRect();
     frameDrag = {
@@ -8067,8 +8156,9 @@ function bindFrameDrag(el, slot, unitId) {
     frameDrag.moved = true;
     el.classList.add("dragging");
     const parent = $("unit-frames");
-    const x = clamp(frameDrag.left + dx, 0, Math.max(0, parent.clientWidth - el.offsetWidth));
-    const y = clamp(frameDrag.top + dy, 0, Math.max(0, parent.clientHeight - el.offsetHeight));
+    const box = frameBox(el);
+    const x = clamp(frameDrag.left + dx, 0, Math.max(0, parent.clientWidth - box.w));
+    const y = clamp(frameDrag.top + dy, 0, Math.max(0, parent.clientHeight - box.h));
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
   });
@@ -8093,6 +8183,7 @@ function bindFrameDrag(el, slot, unitId) {
 
 function buildMatchUi() {
   if (window.HEADLESS) return;
+  applyHudScale();
   const wrap = $("unit-frames");
   wrap.innerHTML = "";
   const counts = { ally: 0, enemy: 0 };
@@ -8109,6 +8200,7 @@ function buildMatchUi() {
       <div class="meter resource"><div class="fill"></div><span></span></div>
       <div class="meter cast hidden"><div class="fill"></div><span></span></div>
       <div class="auras"></div>`;
+    el.appendChild(makeScaleGrip("frames"));
     bindFrameDrag(el, slot, unit.id);
     wrap.appendChild(el);
     unit.el = el;
@@ -9755,6 +9847,9 @@ if (!window.HEADLESS) {
   if ($("leave-training")) $("leave-training").addEventListener("click", requestBack);
   document.addEventListener("mousemove", moveTip);
   window.addEventListener("load", () => {
+    applyHudScale();
+    const barGrip = $("bar-resize");
+    if (barGrip) bindScaleGrip(barGrip, "bar");
     if (window.ArenaNet) ArenaNet.on(onNetMessage);
     renderLobby();
     watchOnline();

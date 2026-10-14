@@ -442,6 +442,8 @@ button, input { font-family: inherit; }
 .frame {
   position: absolute;
   width: 196px;
+  transform: scale(var(--frame-scale, 1));
+  transform-origin: top left;
   text-align: left;
   color: var(--text);
   font: inherit;
@@ -655,15 +657,49 @@ button, input { font-family: inherit; }
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   gap: 4px;
   width: max-content;
   max-width: calc(100vw - 24px);
 }
 
+#bar-scale {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(4px * var(--bar-scale, 1));
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+
+.resize-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  z-index: 3;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 52%, rgba(224, 193, 122, 0.95) 52%);
+}
+
+#bar-resize {
+  position: static;
+  display: block;
+  width: 56px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(224, 193, 122, 0.55);
+  cursor: ew-resize;
+}
+
+#bar-resize:hover,
+#bar-resize.sizing { background: rgba(240, 212, 138, 0.95); }
+
 #castbar {
   position: relative;
-  height: 16px;
+  height: calc(16px * var(--bar-scale, 1));
   background: rgba(8, 6, 5, 0.8);
   border: 1px solid var(--gold-dim);
   border-radius: 4px;
@@ -677,12 +713,12 @@ button, input { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--bar-scale, 1));
 }
 
 #status-line {
   min-height: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--bar-scale, 1));
   color: #f0c2c2;
   text-align: center;
   text-shadow: 0 1px 2px #000;
@@ -692,8 +728,8 @@ button, input { font-family: inherit; }
 #abilities {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px;
+  gap: calc(4px * var(--bar-scale, 1));
+  padding: calc(4px * var(--bar-scale, 1));
   background: rgba(8, 6, 5, 0.62);
   border: 1px solid rgba(224, 193, 122, 0.35);
   border-radius: 8px;
@@ -724,9 +760,9 @@ button, input { font-family: inherit; }
 
 .ability {
   position: relative;
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
+  width: calc(46px * var(--bar-scale, 1));
+  height: calc(46px * var(--bar-scale, 1));
+  flex: 0 0 calc(46px * var(--bar-scale, 1));
   border-radius: 4px;
   border: 1px solid #7d6540;
   background:
@@ -746,9 +782,9 @@ button, input { font-family: inherit; }
 .ability.unusable { filter: grayscale(0.55) brightness(0.8); }
 .ability .key {
   position: absolute;
-  top: 3px;
-  left: 5px;
-  font-size: 10px;
+  top: calc(3px * var(--bar-scale, 1));
+  left: calc(5px * var(--bar-scale, 1));
+  font-size: calc(10px * var(--bar-scale, 1));
   color: var(--gold);
 }
 .ability .short {
@@ -762,8 +798,8 @@ button, input { font-family: inherit; }
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 1px;
-  font-size: 9px;
+  bottom: calc(1px * var(--bar-scale, 1));
+  font-size: calc(9px * var(--bar-scale, 1));
   color: #f6efe2;
   text-shadow: 0 1px 2px #000;
 }
@@ -782,13 +818,15 @@ button, input { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: calc(16px * var(--bar-scale, 1));
   font-weight: 700;
   text-shadow: 0 2px 2px #000;
   pointer-events: none;
 }
 
 #hint {
+  width: 0;
+  min-width: 100%;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.3;
