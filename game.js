@@ -1855,7 +1855,7 @@ const CLASSES = {
     name: "Shade",
     color: CLASS_COLORS.rogue,
     role: "Melee",
-    blurb: "Opens from the veil with a stun, then sticks to a target. Veil needs you out of combat. Fade is the one you use during a fight.",
+    blurb: "Opens from the veil with a stun, then sticks to a target. Autos stack Gash, a healing cut of 10% per hit up to 40%. Gash lasts 6 sec and refreshes on each auto. Veil needs you out of combat. Fade is the one you use during a fight.",
     hp: 2950,
     speed: 13,
     melee: true,
@@ -5811,7 +5811,8 @@ function heal(source, target, raw, spellName, quiet) {
   floater(target, `+${gained}`, crit ? "#b6ff6a" : "#7dff9a");
   const notes = [];
   if (currentDamp() > 0) notes.push(`Healing Reducing ${Math.round(currentDamp() * 100)}%`);
-  if (target.auras.some((a) => a.healReduce)) notes.push("Sundered");
+  const cut = target.auras.filter((a) => a.healReduce).sort((a, b) => b.healReduce - a.healReduce)[0];
+  if (cut) notes.push(cut.name);
   if (!quiet) combat(`${nameOf(source)} ${spellName} heals ${nameOf(target)} for ${gained}${notes.length ? ` (${notes.join(", ")})` : ""}.`);
   return gained;
 }
@@ -6593,6 +6594,23 @@ function tickSwing(unit, dt) {
   const dealt = dealDamage(unit, target, auto.damage, { direct: true, school: "physical", name: "Auto attack", log: false });
   if (unit.classId === "warrior" && dealt >= 0) unit.resource = Math.min(100, unit.resource + (unit.rageOnSwing || 12));
   if (unit.classId === "duelist" && isDuelMark(unit, target) && !immune(target)) gainMomentum(unit, 8);
+  if (unit.classId === "rogue" && target.hp > 0 && !immune(target)) applyShadeCut(target);
+}
+
+function applyShadeCut(target) {
+  const prev = target.auras.find((a) => a.id === "gash");
+  const stacks = Math.min(4, (prev?.stacks || 0) + 1);
+  const pct = stacks * 10;
+  addAura(target, {
+    id: "gash",
+    name: `Gash ${pct}%`,
+    short: "Gash",
+    type: "debuff",
+    remaining: 6,
+    stacks,
+    healReduce: stacks * 0.1,
+  });
+  if (!prev || stacks > prev.stacks) floater(target, `Gash ${pct}%`, "#e15b5b");
 }
 
 function tickCast(unit, dt) {
@@ -9460,7 +9478,7 @@ function renderDossier() {
   const progress = lv.need
     ? `<div class="xp-line"><span>Level ${lv.level} of ${LEVEL_CAP}. The champion set unlocks at level ${LEVEL_CAP}.</span><span class="xp-bar"><i style="width:${Math.round((lv.xp / lv.need) * 100)}%"></i></span><span class="xp-count">${lv.xp} / ${lv.need} XP · win ${XP_WIN}, loss ${XP_LOSS}</span></div>`
     : `<div class="xp-line"><b class="xp-up">Level ${LEVEL_CAP}. Champion set equipped.</b></div>`;
-  dossier.innerHTML = `<h3>${esc(cls.name)} kit</h3>${progress}` + cls.abilities.map((a) => {
+  dossier.innerHTML = `<h3>${esc(cls.name)} kit</h3><p class="kit-blurb">${esc(cls.blurb)}</p>${progress}` + cls.abilities.map((a) => {
     const bits = [a.channel ? `${a.castTime}s channel` : a.castTime ? `${a.castTime}s cast` : "Instant"];
     if (a.cost) bits.push(`${a.cost} ${cls.resource.name.toLowerCase()}`);
     if (a.cd) bits.push(`${a.cd}s cd`);
