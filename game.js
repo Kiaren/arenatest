@@ -7444,26 +7444,10 @@ function updateMovement(dt) {
 }
 
 function separate() {
-  const units = match.units.filter((u) => u.hp > 0);
-  for (let i = 0; i < units.length; i++) {
-    for (let j = i + 1; j < units.length; j++) {
-      let dx = units[j].x - units[i].x;
-      let dy = units[j].y - units[i].y;
-      let d = Math.hypot(dx, dy) || 0.001;
-      if (Math.abs(units[i].height - units[j].height) > 2.4) continue;
-      const min = units[i].r + units[j].r;
-      if (d < min) {
-        const push = (min - d) / 2;
-        dx /= d;
-        dy /= d;
-        units[i].x -= dx * push;
-        units[i].y -= dy * push;
-        units[j].x += dx * push;
-        units[j].y += dy * push;
-      }
-    }
+  for (const unit of match.units) {
+    if (unit.hp <= 0) continue;
+    clampUnit(unit, unit.dash && unit.dash.leap && unit.height > 0.6);
   }
-  for (const unit of units) clampUnit(unit, unit.dash && unit.dash.leap && unit.height > 0.6);
 }
 
 function checkEnd() {
